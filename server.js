@@ -4,7 +4,6 @@ const http = require('http'), fs = require('fs'), path = require('path'), crypto
 const PORT = +process.env.PORT || 3000, MAX = 12, MAX_ROOMS = 80, H7 = 19; // card id = suit*13 + rank-1 ; 7♥ = 19
 const RK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'], SY = ['♠', '♥', '♦', '♣'];
 const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const PAGE = fs.readFileSync(path.join(__dirname, 'index.html'));
 const rooms = new Map(); // code -> table
 const byToken = new Map(); // token -> { S, p }
 const conns = new Map(); // token -> Set(res)
@@ -21,7 +20,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, origin: '', phase: 'lobby', players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null };
+  return { code, origin: '', phase: 'lobby', players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alert: null, endAlerted: false };
 }
 function setOrigin(S, req) {
   const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || (req.socket.encrypted ? 'https' : 'http');
@@ -43,7 +42,8 @@ function view(S, p) {
     phase: S.phase, you: p.id, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
     players: S.players.map(q => ({ id: q.id, name: q.name, n: q.hand.length, on: q.on, place: q.place, spec: q.spectator })),
     board: S.board, turn: cur ? cur.id : null, hand: p.hand, legal: cur === p ? legal(S, p) : [],
-    last: S.last, log: S.log.slice(-5), spec: p.spectator, place: p.place
+    last: S.last, log: S.log.slice(-5), spec: p.spectator, place: p.place,
+    chat: S.chat.slice(-40), alert: S.alert
   };
 }
 function push(S) {
@@ -55,6 +55,45 @@ function push(S) {
   else if (!p.on) S.timer = setTimeout(() => play(S, p, l[crypto.randomInt(l.length)]), 2500);
 }
 function addLog(S, t) { S.log.push(t); if (S.log.length > 30) S.log.shift(); }
+function addChat(S, name, text, sys) {
+  S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys });
+  if (S.chat.length > 80) S.chat.splice(0, S.chat.length - 80);
+}
+function nextActiveTurn(st) {
+  const n = st.players.length;
+  for (let i = 1; i <= n; i++) {
+    const j = (st.turn + i) % n, p = st.players[j];
+    if (!p.spectator && !p.done) { st.turn = j; return true; }
+  }
+  return false;
+}
+function maybeForcedThree(S) {
+  if (S.phase !== 'playing' || S.endAlerted) return;
+  let left = 0;
+  for (const p of S.players) if (active(p)) left += p.hand.length;
+  if (left !== 3) return;
+  const st = {
+    started: S.started,
+    board: S.board.map(b => b && b.slice()),
+    turn: S.turn,
+    players: S.players.map(p => ({ spectator: p.spectator, done: p.done, hand: p.hand.slice() }))
+  };
+  for (let step = 0; step < 3; step++) {
+    const p = st.players[st.turn];
+    const L = p.hand.filter(id => canPlay(st, id));
+    if (L.length !== 1) return;
+    const id = L[0];
+    p.hand.splice(p.hand.indexOf(id), 1);
+    const s = id / 13 | 0, r = id % 13 + 1, b = st.board[s];
+    if (!b) st.board[s] = [r, r]; else if (r < b[0]) b[0] = r; else b[1] = r;
+    st.started = true;
+    if (!p.hand.length) p.done = true;
+    if (step < 2 && !nextActiveTurn(st)) return;
+  }
+  S.endAlerted = true;
+  S.alert = { id: S.chatSeq + 1, msg: 'The last 3 cards will be played in the next 3 turns.' };
+  addChat(S, '', S.alert.msg, true);
+}
 
 function advance(S) {
   const n = S.players.length;
@@ -65,7 +104,10 @@ function afterMove(S) {
   if (left.length <= 1) {
     if (left.length) { left[0].done = true; left[0].place = ++S.places; }
     S.phase = 'over'; S.turn = -1; addLog(S, 'Round over');
-  } else advance(S);
+  } else {
+    advance(S);
+    maybeForcedThree(S);
+  }
   push(S);
 }
 function play(S, p, id) {
@@ -86,6 +128,7 @@ function start(S) {
   deck.forEach((c, i) => S.players[i % n].hand.push(c));
   S.players.forEach(p => p.hand.sort((a, b) => a - b));
   S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.log = [];
+  S.alert = null; S.endAlerted = false;
   S.turn = S.players.findIndex(p => p.hand.includes(H7)); S.phase = 'playing';
   addLog(S, 'Dealt to ' + n + ' players. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
   push(S); return {};
@@ -143,6 +186,14 @@ function act(b) {
     if (!p.hand.includes(b.id) || !canPlay(S, b.id)) return { err: 'That card cannot be played' };
     play(S, p, b.id); return {};
   }
+  if (b.a === 'chat') {
+    const text = String(b.msg || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (!text) return { err: 'Type a message first' };
+    const now = Date.now();
+    if (p.chatAt && now - p.chatAt < 400) return { err: 'Wait a moment before sending again' };
+    p.chatAt = now;
+    addChat(S, p.name, text, false); push(S); return {};
+  }
   return { err: 'Unknown action' };
 }
 
@@ -150,7 +201,7 @@ http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (req.method === 'GET' && (u.pathname === '/' || u.pathname === '/index.html')) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(PAGE);
+    return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
   }
   if (req.method === 'GET' && u.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok');

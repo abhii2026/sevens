@@ -11,8 +11,9 @@
 html,body{margin:0}
 body{min-height:100dvh;color:#f3efe3;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(ellipse at 50% 20%,#167a52 0,var(--felt) 45%,var(--felt2) 100%) fixed;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 h1,h2{font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;font-weight:700;margin:0}
-#app{max-width:1200px;margin:0 auto;padding:10px 12px 24px}
-#app.t{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:6px}
+#app{max-width:1200px;margin:0 auto;padding:10px 12px 24px;transition:padding .2s}
+#app.t{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:calc(58px + env(safe-area-inset-bottom))}
+body.chat-open #app.t{padding-bottom:calc(42vh + env(safe-area-inset-bottom))}
 button{font:inherit;cursor:pointer}
 .btn{background:var(--brass);color:#2a1f05;border:0;border-radius:10px;padding:12px 22px;font-weight:700;font-size:16px;box-shadow:0 2px 0 #9b7a2e}
 .btn:active{transform:translateY(1px);box-shadow:none}.btn[disabled]{opacity:.45;cursor:default}
@@ -70,9 +71,32 @@ input{font:inherit;font-size:17px;padding:12px 14px;border-radius:10px;border:2p
 .log{margin-top:2px;font-size:12px;opacity:.7;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:17px}
 @media(max-height:700px){.pl i{width:26px;height:26px;font-size:14px}.pl{padding:3px 10px 3px 3px}.pl b{font-size:13px}.pl small{font-size:11px}.players{gap:5px;margin-bottom:6px}}
 .log div:last-child{opacity:1}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 18px;border-radius:10px;z-index:9}
-.over{position:fixed;inset:0;background:#000a;display:grid;place-items:center;padding:16px;z-index:5}
-.over .panel{background:#0b2e21;max-width:420px;width:100%;text-align:center}
+.toast{position:fixed;left:50%;top:max(18px,env(safe-area-inset-top));transform:translateX(-50%);background:#1a1408;color:#f8f4e9;padding:12px 18px;border-radius:12px;z-index:400;max-width:min(420px,calc(100vw - 24px));text-align:center;pointer-events:none;border:1px solid var(--brass);box-shadow:0 10px 28px rgba(0,0,0,.55);font-weight:600}
+.over{position:fixed;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;padding:16px;z-index:250;isolation:isolate}
+.over .panel{background:#0b2e21;max-width:420px;width:100%;text-align:center;position:relative;z-index:1;box-shadow:0 16px 40px #0008}
+.chat{position:fixed;z-index:120;display:flex;flex-direction:column;background:#0b2e21;border:1px solid rgba(217,178,95,.4);color:#f3efe3;box-shadow:0 -8px 24px rgba(0,0,0,.35)}
+.chat[hidden]{display:none!important}
+.chat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(217,178,95,.12);cursor:pointer;flex:none}
+.chat-head b{font-size:14px}
+.chat-head .badge{background:var(--brass);color:#2a1f05;border-radius:999px;min-width:18px;height:18px;font:700 11px/18px system-ui;text-align:center;padding:0 5px}
+.chat-msgs{flex:1;overflow:auto;padding:10px 12px;font-size:14px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.chat-msgs .sys{opacity:.85;font-style:italic;color:var(--brass);text-align:center}
+.chat-msgs .who{font-weight:700;color:var(--brass);margin-right:6px}
+.chat form{display:flex;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border-top:1px solid rgba(217,178,95,.25);flex:none}
+.chat form input{padding:10px 12px;font-size:15px}
+.chat form button{flex:none;padding:10px 14px;font-size:14px}
+.chat:not(.open) .chat-msgs,.chat:not(.open) form{display:none}
+@media(max-width:899px){
+  .chat{left:0;right:0;bottom:0;border-radius:14px 14px 0 0;max-height:42vh}
+  .chat:not(.open){max-height:none}
+}
+@media(min-width:900px){
+  #app.t{padding-bottom:6px}
+  body.chat-open #app.t{padding-bottom:6px;padding-right:308px;max-width:none}
+  .chat{top:0;right:0;bottom:0;width:300px;border-radius:0;border-right:0;border-top:0;border-bottom:0}
+  .chat:not(.open){width:auto;top:auto;height:auto;border-radius:12px 0 0 12px;bottom:24px}
+  .chat form{padding-bottom:10px}
+}
 .rank{display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid rgba(255,255,255,.12);font-size:17px}
 .rank:first-of-type{color:var(--brass);font-weight:700}
 ul.pl-list{list-style:none;padding:0;margin:12px 0;text-align:left}
@@ -111,11 +135,16 @@ function card(id,cls=''){
   return `<div class="card ${isRed(s)?'red':''} ${cls}" data-c="${id}" aria-label="${RK[r]} of ${['spades','hearts','diamonds','clubs'][s]}"><div class="face">${ix}${body}${ix.replace('class="ix"','class="ix bt"')}</div></div>`;
 }
 
-let T=localStorage.sevensT||'',G=null,sel=-1,es=null,wasMyTurn=false;
+let T=localStorage.sevensT||'',G=null,sel=-1,es=null,wasMyTurn=false,chatOpen=localStorage.sevensChat==='1',seenChat=0,lastAlert=0;
 const app=document.getElementById('app');
 const roomFromUrl=()=>new URLSearchParams(location.search).get('r')||'';
+const desk=()=>innerWidth>=900;
 async function api(b){try{const r=await fetch('/api',{method:'POST',body:JSON.stringify({t:T,...b})});return await r.json()}catch(e){return{err:'Can\u2019t reach the server. If you just opened a free host, wait ~30s for it to wake and try again.'}}}
-function toast(m){const d=document.createElement('div');d.className='toast';d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
+function toast(m){
+  document.querySelectorAll('.toast').forEach(t=>t.remove());
+  const d=document.createElement('div');d.className='toast';d.setAttribute('role','status');d.textContent=m;
+  document.body.appendChild(d);setTimeout(()=>d.remove(),4200);
+}
 function connect(){
   if(es)es.close();
   es=new EventSource('/events?t='+T);
@@ -124,6 +153,7 @@ function connect(){
     const want=roomFromUrl();
     if(want && G.room!==want){es.close();T='';localStorage.removeItem('sevensT');G=null;render();return}
     if(G.room&&!want)history.replaceState(null,'','?r='+G.room);
+    if(G.alert&&G.alert.id!==lastAlert){lastAlert=G.alert.id;toast(G.alert.msg)}
     render();
   };
   es.onerror=()=>{if(es.readyState===2){T='';localStorage.removeItem('sevensT');G=null;render()}};
@@ -138,13 +168,45 @@ function tap(id){
   if(!G.legal.includes(id)){sel=-1;render();return toast(G.turn===G.you?'That card can\u2019t be played now':'Wait for your turn')}
   if(sel===id){sel=-1;api({a:'play',id}).then(r=>r.err&&toast(r.err))}else{sel=id;render()}
 }
-app.onclick=async e=>{
+document.addEventListener('click',async e=>{
   if(e.target.id==='go')return join();
   if(e.target.id==='share'){navigator.clipboard.writeText(e.target.textContent).then(()=>toast('Link copied')).catch(()=>{});return}
+  if(e.target.closest('#chatToggle')){chatOpen=!chatOpen;localStorage.sevensChat=chatOpen?'1':'0';if(chatOpen)seenChat=(G&&G.chat||[]).length;paintChat();if(G&&G.phase!=='lobby')layout(innerWidth/innerHeight>1.25);return}
   const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c);
   const a=e.target.closest('[data-a]');if(a){const r=await api({a:a.dataset.a});if(r.err)toast(r.err)}
-};
+});
 app.onkeydown=e=>{if(e.key==='Enter'&&(e.target.id==='nm'||e.target.id==='rm'))join()};
+
+function paintChat(){
+  let el=document.getElementById('chat');
+  if(!G){if(el)el.hidden=true;document.body.classList.remove('chat-open');const o=document.getElementById('over');if(o)o.remove();return}
+  if(!el){
+    el=document.createElement('aside');el.id='chat';
+    el.innerHTML=`<div class="chat-head" id="chatToggle"><b>Chat</b><span class="badge" id="chatBadge" hidden></span></div>
+      <div class="chat-msgs" id="chatMsgs"></div>
+      <form id="chatForm"><input id="chatIn" maxlength="160" placeholder="Message the table" autocomplete="off"><button class="btn" type="submit">Send</button></form>`;
+    document.body.appendChild(el);
+    document.getElementById('chatForm').onsubmit=e=>{
+      e.preventDefault();
+      const inp=document.getElementById('chatIn'),t=inp.value.trim();if(!t)return;
+      inp.value='';api({a:'chat',msg:t}).then(r=>r.err&&toast(r.err));
+    };
+  }
+  el.hidden=false;el.classList.toggle('open',chatOpen);
+  document.body.classList.toggle('chat-open',chatOpen);
+  const msgs=G.chat||[],box=document.getElementById('chatMsgs');
+  const stick=box.scrollHeight-box.scrollTop-box.clientHeight<40;
+  box.innerHTML=msgs.map(m=>m.sys?`<div class="sys">${esc(m.text)}</div>`:`<div><span class="who">${esc(m.name)}</span>${esc(m.text)}</div>`).join('')||'<div class="sys">Say hello to the table</div>';
+  if(chatOpen){seenChat=msgs.length;if(stick)box.scrollTop=box.scrollHeight}
+  const unread=Math.max(0,msgs.length-seenChat),bd=document.getElementById('chatBadge');
+  bd.hidden=!unread||chatOpen;bd.textContent=unread||'';
+}
+function showOver(html){
+  let o=document.getElementById('over');
+  if(!html){if(o)o.remove();return}
+  if(!o){o=document.createElement('div');o.id='over';o.className='over';document.body.appendChild(o)}
+  o.innerHTML=html;
+}
 
 const logo=`<h1 class="logo">${use(0)}${use(1)}7${use(2)}${use(3)}</h1>`;
 function rules(){return `<details><summary>How to play</summary>
@@ -154,8 +216,9 @@ function rules(){return `<details><summary>How to play</summary>
 
 function render(){
   app.className=G&&G.phase!=='lobby'?'t':'';
-  if(location.protocol==='file:'){app.innerHTML=`<div class="center">${logo}<div class="panel" style="text-align:left"><b>This page was opened as a file, so it can't reach the game server.</b><ol style="padding-left:20px"><li>Run <code>node server.js</code></li><li>Open <code>http://localhost:3000</code> in your browser instead of this file.</li></ol></div></div>`;return}
-  if(!G){const pre=esc(roomFromUrl());app.innerHTML=`<div class="center">${logo}<p style="opacity:.85">Play Sevens with friends from any phone or computer.</p><div class="panel"><input id="nm" maxlength="14" placeholder="Your name" autocomplete="nickname" value="${esc(localStorage.sevensN||'')}"><p></p><input id="rm" maxlength="6" placeholder="Room code (optional)" autocapitalize="characters" spellcheck="false" value="${pre}"><p style="opacity:.75;font-size:13px;margin:10px 0 14px">Leave the code blank to start a new table, then send your friends the link.</p><button id="go" class="btn" style="width:100%">${pre?'Join this table':'Open a table'}</button></div></div>`;return}
+  paintChat();
+  if(location.protocol==='file:'){showOver('');app.innerHTML=`<div class="center">${logo}<div class="panel" style="text-align:left"><b>This page was opened as a file, so it can't reach the game server.</b><ol style="padding-left:20px"><li>Run <code>node server.js</code></li><li>Open <code>http://localhost:3000</code> in your browser instead of this file.</li></ol></div></div>`;return}
+  if(!G){showOver('');const pre=esc(roomFromUrl());app.innerHTML=`<div class="center">${logo}<p style="opacity:.85">Play Sevens with friends from any phone or computer.</p><div class="panel"><input id="nm" maxlength="14" placeholder="Your name" autocomplete="nickname" value="${esc(localStorage.sevensN||'')}"><p></p><input id="rm" maxlength="6" placeholder="Room code (optional)" autocapitalize="characters" spellcheck="false" value="${pre}"><p style="opacity:.75;font-size:13px;margin:10px 0 14px">Leave the code blank to start a new table, then send your friends the link.</p><button id="go" class="btn" style="width:100%">${pre?'Join this table':'Open a table'}</button></div></div>`;return}
   if(G.phase==='lobby')return lobby();
   table();
 }
@@ -167,6 +230,7 @@ function lobby(){
   <p style="opacity:.8;margin:0 0 12px">${n<2?'Waiting for more players…':`${n} players · about ${Math.floor(52/n)}${52%n?'–'+Math.ceil(52/n):''} cards each`} (max ${G.max})</p>
   ${host?`<button class="btn" data-a="start" ${n<2?'disabled':''}>Deal the cards</button>`:'<p style="margin:0">Waiting for the host to deal…</p>'}
   ${rules()}</div></div>`;
+  showOver('');
 }
 function banner(){
   const me=G.players.find(p=>p.id===G.you),cur=G.players.find(p=>p.id===G.turn);
@@ -193,17 +257,17 @@ function table(){
   const sorted=[...G.players].filter(p=>!p.spec).sort((a,b)=>a.place-b.place);
   app.innerHTML=`<div class="players">${chips}</div><div class="board ${wide?'w':''}">${board}</div>
   <div class="banner ${cls}">${msg}</div><div class="hand"></div>
-  <div class="log">${esc(G.log[G.log.length-1]||'')}</div>
-  ${G.phase==='over'?`<div class="over"><div class="panel"><h2 style="font-size:30px;color:var(--brass)">Round over</h2><p style="margin:6px 0 10px;opacity:.8">${esc(sorted[0].name)} wins</p>
+  <div class="log">${esc(G.log[G.log.length-1]||'')}</div>`;
+  showOver(G.phase==='over'?`<div class="panel"><h2 style="font-size:30px;color:var(--brass)">Round over</h2><p style="margin:6px 0 10px;opacity:.8">${esc(sorted[0].name)} wins</p>
   ${sorted.map(p=>`<div class="rank"><span>#${p.place} ${esc(p.name)}</span><span>${p.id===G.you?'you':''}</span></div>`).join('')}<p></p>
-  ${G.host===G.you?'<button class="btn" data-a="start">Deal again</button>':'<p>Waiting for the host to deal again…</p>'}</div></div>`:''}`;
+  ${G.host===G.you?'<button class="btn" data-a="start">Deal again</button>':'<p>Waiting for the host to deal again…</p>'}</div>`:'');
   layout(wide);
 }
 // Sizes every card so the whole table fits in one screen, whatever the device or player count.
 function layout(wide){
-  const n=G.hand.length,bRows=wide?2:4,W=Math.min(innerWidth,1200)-26;
+  const n=G.hand.length,bRows=wide?2:4,side=desk()&&chatOpen?308:0,W=Math.min(innerWidth-side,1200)-26;
   const used=[...app.querySelectorAll('.players,.banner,.log')].reduce((a,e)=>a+e.offsetHeight+8,0)+34;
-  const avail=innerHeight-used;let bw,hw,rows;
+  const avail=innerHeight-used-(desk()?0:chatOpen?Math.round(innerHeight*.42):58);let bw,hw,rows;
   for(rows=1;rows<=4;rows++){
     bw=(avail-bRows*8-16-34*rows)/(bRows*1.4+rows*1.4*1.15);
     bw=Math.max(26,Math.min(bw,84,innerWidth*.17));hw=Math.min(bw*1.15,92);
