@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a3325">
+<title>Sevens</title>
+<style>
+:root{--felt:#0f4d36;--felt2:#0a3325;--ivory:#f8f4e9;--brass:#d9b25f;--ink:#15181d;--red:#c0262d;--bw:clamp(38px,8.4vw,66px);--hw:clamp(52px,13vw,84px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+body{min-height:100dvh;color:#f3efe3;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(ellipse at 50% 20%,#167a52 0,var(--felt) 45%,var(--felt2) 100%) fixed;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+h1,h2{font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;font-weight:700;margin:0}
+#app{max-width:1200px;margin:0 auto;padding:10px 12px 24px}
+#app.t{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:6px}
+button{font:inherit;cursor:pointer}
+.btn{background:var(--brass);color:#2a1f05;border:0;border-radius:10px;padding:12px 22px;font-weight:700;font-size:16px;box-shadow:0 2px 0 #9b7a2e}
+.btn:active{transform:translateY(1px);box-shadow:none}.btn[disabled]{opacity:.45;cursor:default}
+.panel{background:rgba(0,0,0,.28);border:1px solid rgba(217,178,95,.35);border-radius:14px;padding:18px}
+input{font:inherit;font-size:17px;padding:12px 14px;border-radius:10px;border:2px solid rgba(217,178,95,.5);background:#0b2e21;color:#fff;width:100%}
+.center{max-width:460px;margin:8vh auto 0;text-align:center}
+.logo{font-size:56px;letter-spacing:.02em;color:var(--brass);text-shadow:0 2px 0 rgba(0,0,0,.4)}
+.logo svg{width:.7em;height:.7em;fill:currentColor;vertical-align:-.05em;margin:0 .1em}
+
+/* ---------- playing cards ---------- */
+.card{position:relative;width:var(--w,64px);aspect-ratio:5/7;container-type:inline-size;flex:none;transition:transform .15s}
+.face{position:absolute;inset:0;border-radius:8cqw;background:linear-gradient(160deg,#fff,#f0ebdd);border:.5cqw solid #b4ad9b;box-shadow:0 1px 4px rgba(0,0,0,.5);color:var(--ink);overflow:hidden}
+.red .face{color:var(--red)}
+.ix{position:absolute;left:6cqw;top:5cqw;width:19cqw;display:flex;flex-direction:column;align-items:center;line-height:1;font:700 19cqw/1 Georgia,"Times New Roman",serif;letter-spacing:-.06em}
+.ix svg{width:14cqw;height:14cqw;margin-top:2cqw;fill:currentColor}
+.ix.bt{left:auto;top:auto;right:6cqw;bottom:5cqw;transform:rotate(180deg)}
+.pips{position:absolute;inset:12% 31%}
+.pip{position:absolute;width:18cqw;height:18cqw;fill:currentColor;transform:translate(-50%,-50%)}
+.pip.f{transform:translate(-50%,-50%) rotate(180deg)}.pip.big{width:46cqw;height:46cqw}
+.fc{position:absolute;inset:11% 25%;border:.8cqw solid currentColor;border-radius:3cqw;display:grid;place-items:center;background:repeating-linear-gradient(135deg,rgba(0,0,0,.05) 0 2cqw,transparent 2cqw 4cqw)}
+.fc b{font:700 40cqw/1 "Iowan Old Style","Palatino Linotype",Georgia,serif}
+.fc svg{position:absolute;width:12cqw;height:12cqw;fill:currentColor;left:3cqw;top:3cqw}
+.fc svg+svg{left:auto;top:auto;right:3cqw;bottom:3cqw;transform:rotate(180deg)}
+.back .face{background:repeating-linear-gradient(45deg,#7a1f2b 0 1.6cqw,#8d2937 1.6cqw 3.2cqw);border:3cqw solid #f8f4e9}
+.back .face::after{content:"";position:absolute;inset:6cqw;border:.8cqw solid var(--brass);border-radius:3cqw}
+
+/* ---------- table ---------- */
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
+.top h2{font-size:26px;color:var(--brass)}
+.players{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.pl{display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.3);border:2px solid transparent;border-radius:999px;padding:5px 14px 5px 5px;transition:.2s}
+.pl i{font:700 16px Georgia,serif;font-style:normal;width:32px;height:32px;border-radius:50%;background:var(--ivory);color:var(--felt2);display:grid;place-items:center}
+.pl b{display:block;font-size:14px;line-height:1.1}.pl small{opacity:.75;font-size:12px}
+.pl.turn{border-color:var(--brass);background:rgba(217,178,95,.2);animation:pulse 1.6s infinite}
+.pl.off{opacity:.5}.pl.out i{background:var(--brass)}
+@keyframes pulse{50%{box-shadow:0 0 0 5px rgba(217,178,95,.25)}}
+.board{flex:1;min-height:0;display:grid;align-content:center;gap:8px;background:rgba(0,0,0,.2);border-radius:16px;padding:8px 10px;border:1px solid rgba(255,255,255,.08)}
+.board.w{grid-template-columns:1fr 1fr;gap:8px 22px}.board.w .lab{width:22px;height:22px}
+.suit{display:flex;align-items:center;gap:10px;min-width:0}
+.lab{width:26px;height:26px;flex:none;fill:#f8f4e9}.lab.red{fill:#ff7b7f}
+.line{position:relative;flex:1;height:calc(var(--bw)*1.4)}
+.line .card{--w:var(--bw);position:absolute;top:0}
+.slot{height:100%;aspect-ratio:5/7;width:var(--bw);border:2px dashed rgba(255,255,255,.3);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:rgba(255,255,255,.5);font:700 14px Georgia,serif}
+.slot svg{width:18px;height:18px;fill:currentColor}
+.card.last .face{box-shadow:0 0 0 3px var(--brass),0 0 14px rgba(217,178,95,.8);animation:pop .35s}
+@keyframes pop{from{transform:scale(1.25)}}
+.banner{text-align:center;margin:6px 0 2px;font-size:17px;min-height:26px}
+.banner.me{color:var(--brass);font-weight:700}
+.hand{margin-top:0}
+.hl{position:relative;height:calc(var(--hw)*1.4 + 34px);padding-top:34px}
+.hl .card{--w:var(--hw);position:absolute;top:34px;cursor:pointer}
+.hl .card.ok{transform:translateY(-14px)}.hl .card.ok .face{box-shadow:0 0 0 2px var(--brass),0 3px 10px rgba(0,0,0,.5)}
+.hl .card.no .face{filter:brightness(.7)}
+.hl .card.sel{transform:translateY(-30px)}
+.log{margin-top:2px;font-size:12px;opacity:.7;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:17px}
+@media(max-height:700px){.pl i{width:26px;height:26px;font-size:14px}.pl{padding:3px 10px 3px 3px}.pl b{font-size:13px}.pl small{font-size:11px}.players{gap:5px;margin-bottom:6px}}
+.log div:last-child{opacity:1}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 18px;border-radius:10px;z-index:9}
+.over{position:fixed;inset:0;background:#000a;display:grid;place-items:center;padding:16px;z-index:5}
+.over .panel{background:#0b2e21;max-width:420px;width:100%;text-align:center}
+.rank{display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid rgba(255,255,255,.12);font-size:17px}
+.rank:first-of-type{color:var(--brass);font-weight:700}
+ul.pl-list{list-style:none;padding:0;margin:12px 0;text-align:left}
+ul.pl-list li{padding:8px 4px;border-bottom:1px solid rgba(255,255,255,.1);display:flex;justify-content:space-between}
+.url{font:600 18px ui-monospace,Menlo,Consolas,monospace;background:#0b2e21;padding:8px 12px;border-radius:8px;display:inline-block;margin:3px 0;user-select:all}
+details{margin-top:14px;text-align:left;opacity:.9}summary{cursor:pointer}
+details p{margin:8px 0}
+@media(max-width:520px){.logo{font-size:44px}.suit{gap:6px}.lab{width:20px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="s0" viewBox="0 0 100 100"><path d="M50 4C50 4 8 38 8 62c0 14 11 22 22 22 8 0 14-4 17-10-1 11-5 18-15 22h36c-10-4-14-11-15-22 3 6 9 10 17 10 11 0 22-8 22-22C92 38 50 4 50 4z"/></symbol>
+<symbol id="s1" viewBox="0 0 100 100"><path d="M50 92C20 66 5 49 5 31 5 16 17 7 30 7c10 0 17 6 20 14 3-8 10-14 20-14 13 0 25 9 25 24 0 18-15 35-45 61z"/></symbol>
+<symbol id="s2" viewBox="0 0 100 100"><path d="M50 3C60 25 76 40 90 50 76 60 60 75 50 97 40 75 24 60 10 50 24 40 40 25 50 3z"/></symbol>
+<symbol id="s3" viewBox="0 0 100 100"><circle cx="50" cy="28" r="22"/><circle cx="26" cy="62" r="22"/><circle cx="74" cy="62" r="22"/><path d="M50 45L38 97h24z"/></symbol>
+</defs></svg>
+<div id="app"></div>
+<script>
+const RK=['','A','2','3','4','5','6','7','8','9','10','J','Q','K'],SYM=['♠','♥','♦','♣'];
+const L=[0,1],R=[2];
+const PIP={2:[[1,0],[1,6]],3:[[1,0],[1,3],[1,6]],4:[[0,0],[2,0],[0,6],[2,6]],5:[[0,0],[2,0],[1,3],[0,6],[2,6]],
+6:[[0,0],[2,0],[0,3],[2,3],[0,6],[2,6]],7:[[0,0],[2,0],[1,1.5],[0,3],[2,3],[0,6],[2,6]],
+8:[[0,0],[2,0],[1,1.5],[0,3],[2,3],[1,4.5],[0,6],[2,6]],9:[[0,0],[2,0],[0,2],[2,2],[1,3],[0,4],[2,4],[0,6],[2,6]],
+10:[[0,0],[2,0],[1,1],[0,2],[2,2],[0,4],[2,4],[1,5],[0,6],[2,6]]};
+const isRed=s=>s===1||s===2, esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const use=(s,c='')=>`<svg class="${c}"><use href="#s${s}"/></svg>`;
+
+function card(id,cls=''){
+  const s=id/13|0,r=id%13+1;let body='';
+  if(r===1)body=`<div class="pips">${`<svg class="pip big" style="left:50%;top:50%"><use href="#s${s}"/></svg>`}</div>`;
+  else if(r>10)body=`<div class="fc">${use(s)}${use(s)}<b>${RK[r]}</b></div>`;
+  else body=`<div class="pips">${PIP[r].map(([x,y])=>`<svg class="pip${y>3?' f':''}" style="left:${x*50}%;top:${y/6*100}%"><use href="#s${s}"/></svg>`).join('')}</div>`;
+  const ix=`<div class="ix"><span>${RK[r]}</span>${use(s)}</div>`;
+  return `<div class="card ${isRed(s)?'red':''} ${cls}" data-c="${id}" aria-label="${RK[r]} of ${['spades','hearts','diamonds','clubs'][s]}"><div class="face">${ix}${body}${ix.replace('class="ix"','class="ix bt"')}</div></div>`;
+}
+
+let T=localStorage.sevensT||'',G=null,sel=-1,es=null,wasMyTurn=false;
+const app=document.getElementById('app');
+const roomFromUrl=()=>new URLSearchParams(location.search).get('r')||'';
+async function api(b){try{const r=await fetch('/api',{method:'POST',body:JSON.stringify({t:T,...b})});return await r.json()}catch(e){return{err:'Can\u2019t reach the server. If you just opened a free host, wait ~30s for it to wake and try again.'}}}
+function toast(m){const d=document.createElement('div');d.className='toast';d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
+function connect(){
+  if(es)es.close();
+  es=new EventSource('/events?t='+T);
+  es.onmessage=e=>{
+    G=JSON.parse(e.data);
+    const want=roomFromUrl();
+    if(want && G.room!==want){es.close();T='';localStorage.removeItem('sevensT');G=null;render();return}
+    if(G.room&&!want)history.replaceState(null,'','?r='+G.room);
+    render();
+  };
+  es.onerror=()=>{if(es.readyState===2){T='';localStorage.removeItem('sevensT');G=null;render()}};
+}
+async function join(){
+  const n=document.getElementById('nm').value;localStorage.sevensN=n;
+  const room=(document.getElementById('rm')||{}).value||roomFromUrl();
+  const r=await api({a:'join',name:n,room});if(r.err)return toast(r.err);
+  T=r.t;localStorage.sevensT=T;history.replaceState(null,'','?r='+r.room);connect();
+}
+function tap(id){
+  if(!G.legal.includes(id)){sel=-1;render();return toast(G.turn===G.you?'That card can\u2019t be played now':'Wait for your turn')}
+  if(sel===id){sel=-1;api({a:'play',id}).then(r=>r.err&&toast(r.err))}else{sel=id;render()}
+}
+app.onclick=async e=>{
+  if(e.target.id==='go')return join();
+  if(e.target.id==='share'){navigator.clipboard.writeText(e.target.textContent).then(()=>toast('Link copied')).catch(()=>{});return}
+  const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c);
+  const a=e.target.closest('[data-a]');if(a){const r=await api({a:a.dataset.a});if(r.err)toast(r.err)}
+};
+app.onkeydown=e=>{if(e.key==='Enter'&&(e.target.id==='nm'||e.target.id==='rm'))join()};
+
+const logo=`<h1 class="logo">${use(0)}${use(1)}7${use(2)}${use(3)}</h1>`;
+function rules(){return `<details><summary>How to play</summary>
+<p>All 52 cards are dealt out. Whoever holds the <b>7♥</b> starts by playing it.</p>
+<p>On your turn play a <b>7</b> to open a suit, or the card directly <b>above or below</b> a run already on the table (Ace is low, King is high). If you have no legal card you pass automatically.</p>
+<p>First to empty their hand wins; play continues until only one player is left.</p></details>`}
+
+function render(){
+  app.className=G&&G.phase!=='lobby'?'t':'';
+  if(location.protocol==='file:'){app.innerHTML=`<div class="center">${logo}<div class="panel" style="text-align:left"><b>This page was opened as a file, so it can't reach the game server.</b><ol style="padding-left:20px"><li>Run <code>node server.js</code></li><li>Open <code>http://localhost:3000</code> in your browser instead of this file.</li></ol></div></div>`;return}
+  if(!G){const pre=esc(roomFromUrl());app.innerHTML=`<div class="center">${logo}<p style="opacity:.85">Play Sevens with friends from any phone or computer.</p><div class="panel"><input id="nm" maxlength="14" placeholder="Your name" autocomplete="nickname" value="${esc(localStorage.sevensN||'')}"><p></p><input id="rm" maxlength="6" placeholder="Room code (optional)" autocapitalize="characters" spellcheck="false" value="${pre}"><p style="opacity:.75;font-size:13px;margin:10px 0 14px">Leave the code blank to start a new table, then send your friends the link.</p><button id="go" class="btn" style="width:100%">${pre?'Join this table':'Open a table'}</button></div></div>`;return}
+  if(G.phase==='lobby')return lobby();
+  table();
+}
+function lobby(){
+  const host=G.host===G.you,n=G.players.length;
+  app.innerHTML=`<div class="center">${logo}<div class="panel">
+  <p style="margin:0 0 6px">Send this link to your friends (room <b>${esc(G.room)}</b>):</p><div class="url" id="share" title="Tap to copy">${esc(G.url||location.origin+'/?r='+G.room)}</div>
+  <ul class="pl-list">${G.players.map(p=>`<li><span>${esc(p.name)}${p.id===G.you?' (you)':''}</span><span style="opacity:.6">${p.id===G.host?'host':p.on?'ready':'connecting…'}</span></li>`).join('')}</ul>
+  <p style="opacity:.8;margin:0 0 12px">${n<2?'Waiting for more players…':`${n} players · about ${Math.floor(52/n)}${52%n?'–'+Math.ceil(52/n):''} cards each`} (max ${G.max})</p>
+  ${host?`<button class="btn" data-a="start" ${n<2?'disabled':''}>Deal the cards</button>`:'<p style="margin:0">Waiting for the host to deal…</p>'}
+  ${rules()}</div></div>`;
+}
+function banner(){
+  const me=G.players.find(p=>p.id===G.you),cur=G.players.find(p=>p.id===G.turn);
+  if(G.spec)return['You joined mid-round. You\u2019ll be dealt in next round.',''];
+  if(me.place&&G.phase==='playing')return[`You\u2019re out in place #${me.place}. Watching the rest…`,'me'];
+  if(G.turn===G.you){
+    if(!G.legal.length)return['No playable card. Passing…','me'];
+    const first=G.board.every(b=>!b);
+    return[first?'You hold the 7♥. Play it to open the game':sel>=0?'Tap the card again to play it':'Your turn. Tap a highlighted card','me']}
+  return[cur?`${esc(cur.name)} is thinking…`:'',''];
+}
+function handHTML(per){let h='';for(let i=0;i<G.hand.length;i+=per)h+=`<div class="hl line" data-fit="h">${G.hand.slice(i,i+per).map(id=>card(id,G.turn===G.you?(G.legal.includes(id)?'ok':'no')+(id===sel?' sel':''):'')).join('')}</div>`;return h}
+function table(){
+  const wide=innerWidth/innerHeight>1.25;
+  const board=[0,1,2,3].map(s=>{const b=G.board[s];let cs='';
+    if(b)for(let r=b[0];r<=b[1];r++){const id=s*13+r-1;cs+=card(id,id===G.last?'last':'')}
+    else cs=`<div class="slot ${isRed(s)?'red':''}">${use(s)}<span>7</span></div>`;
+    return `<div class="suit">${use(s,'lab '+(isRed(s)?'red':''))}<div class="line" data-fit="b">${cs}</div></div>`}).join('');
+  const chips=G.players.map(q=>{const st=q.place?`finished #${q.place}`:q.spec?'joins next round':!q.on?'offline':q.n+' cards';
+    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.place?'out':''} ${q.on?'':'off'}"><i>${esc(q.name[0]).toUpperCase()}</i><div><b>${esc(q.name)}${q.id===G.you?' (you)':''}</b><small>${st}</small></div></div>`}).join('');
+  if(!G.legal.includes(sel))sel=-1;
+  const [msg,cls]=banner(),mine=G.turn===G.you;
+  if(mine&&!wasMyTurn&&navigator.vibrate)navigator.vibrate(60);wasMyTurn=mine;
+  const sorted=[...G.players].filter(p=>!p.spec).sort((a,b)=>a.place-b.place);
+  app.innerHTML=`<div class="players">${chips}</div><div class="board ${wide?'w':''}">${board}</div>
+  <div class="banner ${cls}">${msg}</div><div class="hand"></div>
+  <div class="log">${esc(G.log[G.log.length-1]||'')}</div>
+  ${G.phase==='over'?`<div class="over"><div class="panel"><h2 style="font-size:30px;color:var(--brass)">Round over</h2><p style="margin:6px 0 10px;opacity:.8">${esc(sorted[0].name)} wins</p>
+  ${sorted.map(p=>`<div class="rank"><span>#${p.place} ${esc(p.name)}</span><span>${p.id===G.you?'you':''}</span></div>`).join('')}<p></p>
+  ${G.host===G.you?'<button class="btn" data-a="start">Deal again</button>':'<p>Waiting for the host to deal again…</p>'}</div></div>`:''}`;
+  layout(wide);
+}
+// Sizes every card so the whole table fits in one screen, whatever the device or player count.
+function layout(wide){
+  const n=G.hand.length,bRows=wide?2:4,W=Math.min(innerWidth,1200)-26;
+  const used=[...app.querySelectorAll('.players,.banner,.log')].reduce((a,e)=>a+e.offsetHeight+8,0)+34;
+  const avail=innerHeight-used;let bw,hw,rows;
+  for(rows=1;rows<=4;rows++){
+    bw=(avail-bRows*8-16-34*rows)/(bRows*1.4+rows*1.4*1.15);
+    bw=Math.max(26,Math.min(bw,84,innerWidth*.17));hw=Math.min(bw*1.15,92);
+    const cap=Math.max(1,Math.floor((W-hw)/Math.max(hw*.4,20))+1);
+    if(Math.ceil(n/cap)<=rows)break;
+  }
+  rows=Math.min(rows,4);
+  const st=document.documentElement.style;st.setProperty('--bw',bw+'px');st.setProperty('--hw',hw+'px');
+  app.querySelector('.hand').innerHTML=handHTML(Math.max(1,Math.ceil(n/rows)));
+  fit();
+}
+function fit(){
+  document.querySelectorAll('.line[data-fit]').forEach(line=>{
+    const cs=[...line.children].filter(c=>c.classList.contains('card'));if(!cs.length)return;
+    const av=line.clientWidth,w=cs[0].offsetWidth,n=cs.length,hand=line.dataset.fit==='h';
+    const step=n>1?Math.min(w+(hand?10:6),(av-w)/(n-1)):0,off=hand?(av-((n-1)*step+w))/2:0;
+    cs.forEach((c,i)=>{c.style.left=off+i*step+'px';c.style.zIndex=i});
+  });
+}
+addEventListener('resize',()=>G&&render());
+if(T)connect();else render();
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "sevens",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Sevens (Fan Tan) — internet multiplayer card table",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
