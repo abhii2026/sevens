@@ -12,8 +12,7 @@ html,body{margin:0}
 body{min-height:100dvh;color:#f3efe3;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(ellipse at 50% 20%,#167a52 0,var(--felt) 45%,var(--felt2) 100%) fixed;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 h1,h2{font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;font-weight:700;margin:0}
 #app{max-width:1200px;margin:0 auto;padding:10px 12px 24px;transition:padding .2s}
-#app.t{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:calc(58px + env(safe-area-inset-bottom))}
-body.chat-open #app.t{padding-bottom:calc(42vh + env(safe-area-inset-bottom))}
+#app.t{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:6px}
 button{font:inherit;cursor:pointer}
 .btn{background:var(--brass);color:#2a1f05;border:0;border-radius:10px;padding:12px 22px;font-weight:700;font-size:16px;box-shadow:0 2px 0 #9b7a2e}
 .btn:active{transform:translateY(1px);box-shadow:none}.btn[disabled]{opacity:.45;cursor:default}
@@ -43,15 +42,16 @@ input{font:inherit;font-size:17px;padding:12px 14px;border-radius:10px;border:2p
 /* ---------- table ---------- */
 .top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
 .top h2{font-size:26px;color:var(--brass)}
-.players{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.players{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;padding-right:54px;flex:none}
 .pl{display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.3);border:2px solid transparent;border-radius:999px;padding:5px 14px 5px 5px;transition:.2s}
 .pl i{font:700 16px Georgia,serif;font-style:normal;width:32px;height:32px;border-radius:50%;background:var(--ivory);color:var(--felt2);display:grid;place-items:center}
 .pl b{display:block;font-size:14px;line-height:1.1}.pl small{opacity:.75;font-size:12px}
 .pl.turn{border-color:var(--brass);background:rgba(217,178,95,.2);animation:pulse 1.6s infinite}
 .pl.off{opacity:.5}.pl.out i{background:var(--brass)}
 @keyframes pulse{50%{box-shadow:0 0 0 5px rgba(217,178,95,.25)}}
-.board{flex:1;min-height:0;display:grid;align-content:center;gap:8px;background:rgba(0,0,0,.2);border-radius:16px;padding:8px 10px;border:1px solid rgba(255,255,255,.08)}
-.board.w{grid-template-columns:1fr 1fr;gap:8px 22px}.board.w .lab{width:22px;height:22px}
+.board{flex:1;min-height:0;display:flex;flex-direction:column;background:rgba(0,0,0,.2);border-radius:16px;padding:8px 10px;border:1px solid rgba(255,255,255,.08);overflow:hidden}
+.bi{margin:auto 0;display:grid;gap:8px}
+.bi.w{grid-template-columns:1fr 1fr;gap:8px 22px}.bi.w .lab{width:22px;height:22px}
 .suit{display:flex;align-items:center;gap:10px;min-width:0}
 .lab{width:26px;height:26px;flex:none;fill:#f8f4e9}.lab.red{fill:#ff7b7f}
 .line{position:relative;flex:1;height:calc(var(--bw)*1.4)}
@@ -60,43 +60,33 @@ input{font:inherit;font-size:17px;padding:12px 14px;border-radius:10px;border:2p
 .slot svg{width:18px;height:18px;fill:currentColor}
 .card.last .face{box-shadow:0 0 0 3px var(--brass),0 0 14px rgba(217,178,95,.8);animation:pop .35s}
 @keyframes pop{from{transform:scale(1.25)}}
-.banner{text-align:center;margin:6px 0 2px;font-size:17px;min-height:26px}
+.banner{flex:none;text-align:center;margin:6px 0 2px;font-size:17px;min-height:26px}
 .banner.me{color:var(--brass);font-weight:700}
-.hand{margin-top:0}
+.hand{margin-top:0;flex:none}
 .hl{position:relative;height:calc(var(--hw)*1.4 + 34px);padding-top:34px}
 .hl .card{--w:var(--hw);position:absolute;top:34px;cursor:pointer}
 .hl .card.ok{transform:translateY(-14px)}.hl .card.ok .face{box-shadow:0 0 0 2px var(--brass),0 3px 10px rgba(0,0,0,.5)}
 .hl .card.no .face{filter:brightness(.7)}
 .hl .card.sel{transform:translateY(-30px)}
-.log{margin-top:2px;font-size:12px;opacity:.7;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:17px}
+.log{flex:none;margin-top:2px;font-size:12px;opacity:.7;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:17px}
 @media(max-height:700px){.pl i{width:26px;height:26px;font-size:14px}.pl{padding:3px 10px 3px 3px}.pl b{font-size:13px}.pl small{font-size:11px}.players{gap:5px;margin-bottom:6px}}
 .log div:last-child{opacity:1}
 .toast{position:fixed;left:50%;top:max(18px,env(safe-area-inset-top));transform:translateX(-50%);background:#1a1408;color:#f8f4e9;padding:12px 18px;border-radius:12px;z-index:400;max-width:min(420px,calc(100vw - 24px));text-align:center;pointer-events:none;border:1px solid var(--brass);box-shadow:0 10px 28px rgba(0,0,0,.55);font-weight:600}
 .over{position:fixed;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;padding:16px;z-index:250;isolation:isolate}
 .over .panel{background:#0b2e21;max-width:420px;width:100%;text-align:center;position:relative;z-index:1;box-shadow:0 16px 40px #0008}
-.chat{position:fixed;z-index:120;display:flex;flex-direction:column;background:#0b2e21;border:1px solid rgba(217,178,95,.4);color:#f3efe3;box-shadow:0 -8px 24px rgba(0,0,0,.35)}
-.chat[hidden]{display:none!important}
-.chat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(217,178,95,.12);cursor:pointer;flex:none}
-.chat-head b{font-size:14px}
-.chat-head .badge{background:var(--brass);color:#2a1f05;border-radius:999px;min-width:18px;height:18px;font:700 11px/18px system-ui;text-align:center;padding:0 5px}
+.chatbtn{position:fixed;z-index:130;top:calc(env(safe-area-inset-top) + 8px);right:max(10px,env(safe-area-inset-right));width:44px;height:44px;padding:0;border-radius:50%;border:2px solid var(--brass);background:#0b2e21;color:var(--brass);display:grid;place-items:center;box-shadow:0 4px 12px rgba(0,0,0,.45)}
+.chatbtn[hidden]{display:none}.chatbtn svg{width:22px;height:22px;fill:currentColor}
+.chatbtn .badge{position:absolute;top:-5px;right:-5px;background:#e0453a;color:#fff;border-radius:999px;min-width:18px;height:18px;font:700 11px/18px system-ui;text-align:center;padding:0 5px}
+.chatbtn .badge[hidden]{display:none}
+.chat{position:fixed;z-index:140;top:calc(env(safe-area-inset-top) + 60px);right:max(10px,env(safe-area-inset-right));width:min(340px,calc(100vw - 20px));height:min(52dvh,420px);display:flex;flex-direction:column;background:#0b2e21;border:1px solid rgba(217,178,95,.5);border-radius:14px;box-shadow:0 14px 36px rgba(0,0,0,.55);overflow:hidden;color:#f3efe3}
+.chat[hidden]{display:none}
+.chat-head{display:flex;align-items:center;justify-content:space-between;padding:8px 8px 8px 14px;background:rgba(217,178,95,.14);flex:none}
+.chat-head b{font-size:14px}.chat-head button{background:none;border:0;color:#f3efe3;font-size:22px;line-height:1;padding:2px 8px}
 .chat-msgs{flex:1;overflow:auto;padding:10px 12px;font-size:14px;display:flex;flex-direction:column;gap:8px;min-height:0}
 .chat-msgs .sys{opacity:.85;font-style:italic;color:var(--brass);text-align:center}
 .chat-msgs .who{font-weight:700;color:var(--brass);margin-right:6px}
-.chat form{display:flex;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border-top:1px solid rgba(217,178,95,.25);flex:none}
-.chat form input{padding:10px 12px;font-size:15px}
-.chat form button{flex:none;padding:10px 14px;font-size:14px}
-.chat:not(.open) .chat-msgs,.chat:not(.open) form{display:none}
-@media(max-width:899px){
-  .chat{left:0;right:0;bottom:0;border-radius:14px 14px 0 0;max-height:42vh}
-  .chat:not(.open){max-height:none}
-}
-@media(min-width:900px){
-  #app.t{padding-bottom:6px}
-  body.chat-open #app.t{padding-bottom:6px;padding-right:308px;max-width:none}
-  .chat{top:0;right:0;bottom:0;width:300px;border-radius:0;border-right:0;border-top:0;border-bottom:0}
-  .chat:not(.open){width:auto;top:auto;height:auto;border-radius:12px 0 0 12px;bottom:24px}
-  .chat form{padding-bottom:10px}
-}
+.chat form{display:flex;gap:8px;padding:8px 10px;border-top:1px solid rgba(217,178,95,.25);flex:none}
+.chat form input{padding:10px 12px;font-size:16px}.chat form button{flex:none;padding:10px 14px;font-size:14px}
 .rank{display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid rgba(255,255,255,.12);font-size:17px}
 .rank:first-of-type{color:var(--brass);font-weight:700}
 ul.pl-list{list-style:none;padding:0;margin:12px 0;text-align:left}
@@ -135,10 +125,9 @@ function card(id,cls=''){
   return `<div class="card ${isRed(s)?'red':''} ${cls}" data-c="${id}" aria-label="${RK[r]} of ${['spades','hearts','diamonds','clubs'][s]}"><div class="face">${ix}${body}${ix.replace('class="ix"','class="ix bt"')}</div></div>`;
 }
 
-let T=localStorage.sevensT||'',G=null,sel=-1,es=null,wasMyTurn=false,chatOpen=localStorage.sevensChat==='1',seenChat=0,lastAlert=0;
+let T=localStorage.sevensT||'',G=null,sel=-1,es=null,wasMyTurn=false,chatOpen=false,firstMsg=true,seenChat=0,lastAlert=0;
 const app=document.getElementById('app');
 const roomFromUrl=()=>new URLSearchParams(location.search).get('r')||'';
-const desk=()=>innerWidth>=900;
 async function api(b){try{const r=await fetch('/api',{method:'POST',body:JSON.stringify({t:T,...b})});return await r.json()}catch(e){return{err:'Can\u2019t reach the server. If you just opened a free host, wait ~30s for it to wake and try again.'}}}
 function toast(m){
   document.querySelectorAll('.toast').forEach(t=>t.remove());
@@ -153,7 +142,8 @@ function connect(){
     const want=roomFromUrl();
     if(want && G.room!==want){es.close();T='';localStorage.removeItem('sevensT');G=null;render();return}
     if(G.room&&!want)history.replaceState(null,'','?r='+G.room);
-    if(G.alert&&G.alert.id!==lastAlert){lastAlert=G.alert.id;toast(G.alert.msg)}
+    if(firstMsg){firstMsg=false;lastAlert=G.alert?G.alert.id:0}
+    else if(G.alert&&G.alert.id!==lastAlert){lastAlert=G.alert.id;toast(G.alert.msg)}
     render();
   };
   es.onerror=()=>{if(es.readyState===2){T='';localStorage.removeItem('sevensT');G=null;render()}};
@@ -171,18 +161,21 @@ function tap(id){
 document.addEventListener('click',async e=>{
   if(e.target.id==='go')return join();
   if(e.target.id==='share'){navigator.clipboard.writeText(e.target.textContent).then(()=>toast('Link copied')).catch(()=>{});return}
-  if(e.target.closest('#chatToggle')){chatOpen=!chatOpen;localStorage.sevensChat=chatOpen?'1':'0';if(chatOpen)seenChat=(G&&G.chat||[]).length;paintChat();if(G&&G.phase!=='lobby')layout(innerWidth/innerHeight>1.25);return}
+  if(e.target.closest('#chatBtn')||e.target.closest('#chatClose')){chatOpen=!chatOpen;paintChat();if(chatOpen)setTimeout(()=>{const m=document.getElementById('chatMsgs');m.scrollTop=m.scrollHeight},0);return}
   const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c);
   const a=e.target.closest('[data-a]');if(a){const r=await api({a:a.dataset.a});if(r.err)toast(r.err)}
 });
 app.onkeydown=e=>{if(e.key==='Enter'&&(e.target.id==='nm'||e.target.id==='rm'))join()};
 
 function paintChat(){
-  let el=document.getElementById('chat');
-  if(!G){if(el)el.hidden=true;document.body.classList.remove('chat-open');const o=document.getElementById('over');if(o)o.remove();return}
-  if(!el){
-    el=document.createElement('aside');el.id='chat';
-    el.innerHTML=`<div class="chat-head" id="chatToggle"><b>Chat</b><span class="badge" id="chatBadge" hidden></span></div>
+  let btn=document.getElementById('chatBtn'),el=document.getElementById('chat');
+  if(!G){if(btn)btn.hidden=true;if(el)el.hidden=true;const o=document.getElementById('over');if(o)o.remove();return}
+  if(!btn){
+    btn=document.createElement('button');btn.id='chatBtn';btn.className='chatbtn';btn.setAttribute('aria-label','Chat');
+    btn.innerHTML='<svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg><span class="badge" id="chatBadge" hidden></span>';
+    document.body.appendChild(btn);
+    el=document.createElement('aside');el.id='chat';el.className='chat';el.hidden=true;
+    el.innerHTML=`<div class="chat-head"><b>Table chat</b><button id="chatClose" aria-label="Close chat">\u00d7</button></div>
       <div class="chat-msgs" id="chatMsgs"></div>
       <form id="chatForm"><input id="chatIn" maxlength="160" placeholder="Message the table" autocomplete="off"><button class="btn" type="submit">Send</button></form>`;
     document.body.appendChild(el);
@@ -192,14 +185,13 @@ function paintChat(){
       inp.value='';api({a:'chat',msg:t}).then(r=>r.err&&toast(r.err));
     };
   }
-  el.hidden=false;el.classList.toggle('open',chatOpen);
-  document.body.classList.toggle('chat-open',chatOpen);
-  const msgs=G.chat||[],box=document.getElementById('chatMsgs');
+  btn.hidden=false;el.hidden=!chatOpen;
+  const msgs=G.chat||[],box=document.getElementById('chatMsgs'),lastId=msgs.length?msgs[msgs.length-1].id:0;
   const stick=box.scrollHeight-box.scrollTop-box.clientHeight<40;
   box.innerHTML=msgs.map(m=>m.sys?`<div class="sys">${esc(m.text)}</div>`:`<div><span class="who">${esc(m.name)}</span>${esc(m.text)}</div>`).join('')||'<div class="sys">Say hello to the table</div>';
-  if(chatOpen){seenChat=msgs.length;if(stick)box.scrollTop=box.scrollHeight}
-  const unread=Math.max(0,msgs.length-seenChat),bd=document.getElementById('chatBadge');
-  bd.hidden=!unread||chatOpen;bd.textContent=unread||'';
+  if(chatOpen){seenChat=lastId;if(stick)box.scrollTop=box.scrollHeight}
+  const unread=msgs.filter(m=>m.id>seenChat).length,bd=document.getElementById('chatBadge');
+  bd.hidden=!unread||chatOpen;bd.textContent=unread>9?'9+':unread;
 }
 function showOver(html){
   let o=document.getElementById('over');
@@ -255,7 +247,7 @@ function table(){
   const [msg,cls]=banner(),mine=G.turn===G.you;
   if(mine&&!wasMyTurn&&navigator.vibrate)navigator.vibrate(60);wasMyTurn=mine;
   const sorted=[...G.players].filter(p=>!p.spec).sort((a,b)=>a.place-b.place);
-  app.innerHTML=`<div class="players">${chips}</div><div class="board ${wide?'w':''}">${board}</div>
+  app.innerHTML=`<div class="players">${chips}</div><div class="board"><div class="bi ${wide?'w':''}">${board}</div></div>
   <div class="banner ${cls}">${msg}</div><div class="hand"></div>
   <div class="log">${esc(G.log[G.log.length-1]||'')}</div>`;
   showOver(G.phase==='over'?`<div class="panel"><h2 style="font-size:30px;color:var(--brass)">Round over</h2><p style="margin:6px 0 10px;opacity:.8">${esc(sorted[0].name)} wins</p>
@@ -265,12 +257,12 @@ function table(){
 }
 // Sizes every card so the whole table fits in one screen, whatever the device or player count.
 function layout(wide){
-  const n=G.hand.length,bRows=wide?2:4,side=desk()&&chatOpen?308:0,W=Math.min(innerWidth-side,1200)-26;
+  const n=G.hand.length,bRows=wide?2:4,W=Math.min(innerWidth,1200)-26;
   const used=[...app.querySelectorAll('.players,.banner,.log')].reduce((a,e)=>a+e.offsetHeight+8,0)+34;
-  const avail=innerHeight-used-(desk()?0:chatOpen?Math.round(innerHeight*.42):58);let bw,hw,rows;
+  const avail=innerHeight-used;let bw,hw,rows;
   for(rows=1;rows<=4;rows++){
     bw=(avail-bRows*8-16-34*rows)/(bRows*1.4+rows*1.4*1.15);
-    bw=Math.max(26,Math.min(bw,84,innerWidth*.17));hw=Math.min(bw*1.15,92);
+    bw=Math.max(30,Math.min(bw,84,innerWidth*.19));hw=Math.min(bw*1.15,92);
     const cap=Math.max(1,Math.floor((W-hw)/Math.max(hw*.4,20))+1);
     if(Math.ceil(n/cap)<=rows)break;
   }

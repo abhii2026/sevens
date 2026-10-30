@@ -59,39 +59,17 @@ function addChat(S, name, text, sys) {
   S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys });
   if (S.chat.length > 80) S.chat.splice(0, S.chat.length - 80);
 }
-function nextActiveTurn(st) {
-  const n = st.players.length;
-  for (let i = 1; i <= n; i++) {
-    const j = (st.turn + i) % n, p = st.players[j];
-    if (!p.spectator && !p.done) { st.turn = j; return true; }
-  }
-  return false;
-}
-function maybeForcedThree(S) {
+function maybeLastThree(S) {
   if (S.phase !== 'playing' || S.endAlerted) return;
+  const holders = [];
   let left = 0;
-  for (const p of S.players) if (active(p)) left += p.hand.length;
-  if (left !== 3) return;
-  const st = {
-    started: S.started,
-    board: S.board.map(b => b && b.slice()),
-    turn: S.turn,
-    players: S.players.map(p => ({ spectator: p.spectator, done: p.done, hand: p.hand.slice() }))
-  };
-  for (let step = 0; step < 3; step++) {
-    const p = st.players[st.turn];
-    const L = p.hand.filter(id => canPlay(st, id));
-    if (L.length !== 1) return;
-    const id = L[0];
-    p.hand.splice(p.hand.indexOf(id), 1);
-    const s = id / 13 | 0, r = id % 13 + 1, b = st.board[s];
-    if (!b) st.board[s] = [r, r]; else if (r < b[0]) b[0] = r; else b[1] = r;
-    st.started = true;
-    if (!p.hand.length) p.done = true;
-    if (step < 2 && !nextActiveTurn(st)) return;
+  for (let i = 0; i < S.players.length; i++) {
+    const p = S.players[(S.turn + i) % S.players.length];
+    if (active(p) && p.hand.length) { left += p.hand.length; holders.push(p.name); }
   }
+  if (left !== 3) return;
   S.endAlerted = true;
-  S.alert = { id: S.chatSeq + 1, msg: 'The last 3 cards will be played in the next 3 turns.' };
+  S.alert = { id: S.chatSeq + 1, msg: 'Last three cards sure: ' + holders.join(' & ') };
   addChat(S, '', S.alert.msg, true);
 }
 
@@ -106,7 +84,7 @@ function afterMove(S) {
     S.phase = 'over'; S.turn = -1; addLog(S, 'Round over');
   } else {
     advance(S);
-    maybeForcedThree(S);
+    maybeLastThree(S);
   }
   push(S);
 }
