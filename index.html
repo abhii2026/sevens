@@ -61,6 +61,8 @@ input{font:inherit;font-size:17px;padding:12px 14px;border-radius:10px;border:2p
 .card.last .face{box-shadow:0 0 0 3px var(--brass),0 0 14px rgba(217,178,95,.8);animation:pop .35s}
 @keyframes pop{from{transform:scale(1.25)}}
 .banner{flex:none;text-align:center;margin:6px 0 2px;font-size:17px;min-height:26px}
+.btn.sm{padding:4px 12px;font-size:13px;border-radius:8px;margin-left:8px;box-shadow:none}
+.chat-head #leaveBtn{font-size:12px;border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:4px 10px;margin:0 4px 0 auto}
 .banner.me{color:var(--brass);font-weight:700}
 .hand{margin-top:0;flex:none}
 .hl{position:relative;height:calc(var(--hw)*1.4 + 34px);padding-top:34px}
@@ -125,7 +127,7 @@ function card(id,cls=''){
   return `<div class="card ${isRed(s)?'red':''} ${cls}" data-c="${id}" aria-label="${RK[r]} of ${['spades','hearts','diamonds','clubs'][s]}"><div class="face">${ix}${body}${ix.replace('class="ix"','class="ix bt"')}</div></div>`;
 }
 
-let T=localStorage.sevensT||'',G=null,sel=-1,es=null,wasMyTurn=false,chatOpen=false,firstMsg=true,seenChat=0,lastAlert=0;
+let T=localStorage.sevensT||'',G=null,sel=-1,es=null,wasMyTurn=false,chatOpen=false,firstMsg=true,waitUntil=0,wl=null,seenChat=0,lastAlert=0;
 const app=document.getElementById('app');
 const roomFromUrl=()=>new URLSearchParams(location.search).get('r')||'';
 async function api(b){try{const r=await fetch('/api',{method:'POST',body:JSON.stringify({t:T,...b})});return await r.json()}catch(e){return{err:'Can\u2019t reach the server. If you just opened a free host, wait ~30s for it to wake and try again.'}}}
@@ -138,7 +140,7 @@ function connect(){
   if(es)es.close();
   es=new EventSource('/events?t='+T);
   es.onmessage=e=>{
-    G=JSON.parse(e.data);
+    G=JSON.parse(e.data);waitUntil=G.wait?Date.now()+G.wait.left*1000:0;
     const want=roomFromUrl();
     if(want && G.room!==want){es.close();T='';localStorage.removeItem('sevensT');G=null;render();return}
     if(G.room&&!want)history.replaceState(null,'','?r='+G.room);
@@ -160,6 +162,9 @@ function tap(id){
 }
 document.addEventListener('click',async e=>{
   if(e.target.id==='go')return join();
+  if(e.target.id==='leaveBtn'){
+    if(!confirm(G&&G.phase==='playing'?'Leave this game? A bot will play your cards. You can come back with the same name.':'Leave this table?'))return;
+    await api({a:'leave'});if(es)es.close();es=null;T='';localStorage.removeItem('sevensT');G=null;chatOpen=false;render();return}
   if(e.target.id==='share'){navigator.clipboard.writeText(e.target.textContent).then(()=>toast('Link copied')).catch(()=>{});return}
   if(e.target.closest('#chatBtn')||e.target.closest('#chatClose')){chatOpen=!chatOpen;paintChat();if(chatOpen)setTimeout(()=>{const m=document.getElementById('chatMsgs');m.scrollTop=m.scrollHeight},0);return}
   const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c);
@@ -175,7 +180,7 @@ function paintChat(){
     btn.innerHTML='<svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg><span class="badge" id="chatBadge" hidden></span>';
     document.body.appendChild(btn);
     el=document.createElement('aside');el.id='chat';el.className='chat';el.hidden=true;
-    el.innerHTML=`<div class="chat-head"><b>Table chat</b><button id="chatClose" aria-label="Close chat">\u00d7</button></div>
+    el.innerHTML=`<div class="chat-head"><b>Table chat</b><button id="leaveBtn">Leave table</button><button id="chatClose" aria-label="Close chat">\u00d7</button></div>
       <div class="chat-msgs" id="chatMsgs"></div>
       <form id="chatForm"><input id="chatIn" maxlength="160" placeholder="Message the table" autocomplete="off"><button class="btn" type="submit">Send</button></form>`;
     document.body.appendChild(el);
@@ -208,7 +213,7 @@ function rules(){return `<details><summary>How to play</summary>
 
 function render(){
   app.className=G&&G.phase!=='lobby'?'t':'';
-  paintChat();
+  paintChat();keepAwake();
   if(location.protocol==='file:'){showOver('');app.innerHTML=`<div class="center">${logo}<div class="panel" style="text-align:left"><b>This page was opened as a file, so it can't reach the game server.</b><ol style="padding-left:20px"><li>Run <code>node server.js</code></li><li>Open <code>http://localhost:3000</code> in your browser instead of this file.</li></ol></div></div>`;return}
   if(!G){showOver('');const pre=esc(roomFromUrl());app.innerHTML=`<div class="center">${logo}<p style="opacity:.85">Play Sevens with friends from any phone or computer.</p><div class="panel"><input id="nm" maxlength="14" placeholder="Your name" autocomplete="nickname" value="${esc(localStorage.sevensN||'')}"><p></p><input id="rm" maxlength="6" placeholder="Room code (optional)" autocapitalize="characters" spellcheck="false" value="${pre}"><p style="opacity:.75;font-size:13px;margin:10px 0 14px">Leave the code blank to start a new table, then send your friends the link.</p><button id="go" class="btn" style="width:100%">${pre?'Join this table':'Open a table'}</button></div></div>`;return}
   if(G.phase==='lobby')return lobby();
@@ -224,8 +229,10 @@ function lobby(){
   ${rules()}</div></div>`;
   showOver('');
 }
+function mmss(){const t=Math.max(0,Math.ceil((waitUntil-Date.now())/1000));return Math.floor(t/60)+':'+String(t%60).padStart(2,'0')}
 function banner(){
   const me=G.players.find(p=>p.id===G.you),cur=G.players.find(p=>p.id===G.turn);
+  if(G.wait)return[`Waiting for ${esc(G.wait.name)} to reconnect… ${mmss()}`,''];
   if(G.spec)return['You joined mid-round. You\u2019ll be dealt in next round.',''];
   if(me.place&&G.phase==='playing')return[`You\u2019re out in place #${me.place}. Watching the rest…`,'me'];
   if(G.turn===G.you){
@@ -241,14 +248,14 @@ function table(){
     if(b)for(let r=b[0];r<=b[1];r++){const id=s*13+r-1;cs+=card(id,id===G.last?'last':'')}
     else cs=`<div class="slot ${isRed(s)?'red':''}">${use(s)}<span>7</span></div>`;
     return `<div class="suit">${use(s,'lab '+(isRed(s)?'red':''))}<div class="line" data-fit="b">${cs}</div></div>`}).join('');
-  const chips=G.players.map(q=>{const st=q.place?`finished #${q.place}`:q.spec?'joins next round':!q.on?'offline':q.n+' cards';
+  const chips=G.players.map(q=>{const st=q.place?`finished #${q.place}`:q.spec?'joins next round':q.bot?'bot playing':!q.on?'reconnecting…':q.n+' cards';
     return `<div class="pl ${q.id===G.turn?'turn':''} ${q.place?'out':''} ${q.on?'':'off'}"><i>${esc(q.name[0]).toUpperCase()}</i><div><b>${esc(q.name)}${q.id===G.you?' (you)':''}</b><small>${st}</small></div></div>`}).join('');
   if(!G.legal.includes(sel))sel=-1;
   const [msg,cls]=banner(),mine=G.turn===G.you;
   if(mine&&!wasMyTurn&&navigator.vibrate)navigator.vibrate(60);wasMyTurn=mine;
   const sorted=[...G.players].filter(p=>!p.spec).sort((a,b)=>a.place-b.place);
   app.innerHTML=`<div class="players">${chips}</div><div class="board"><div class="bi ${wide?'w':''}">${board}</div></div>
-  <div class="banner ${cls}">${msg}</div><div class="hand"></div>
+  <div class="banner ${cls}"><span id="bt">${msg}</span>${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait">Don\'t wait</button>':''}</div><div class="hand"></div>
   <div class="log">${esc(G.log[G.log.length-1]||'')}</div>`;
   showOver(G.phase==='over'?`<div class="panel"><h2 style="font-size:30px;color:var(--brass)">Round over</h2><p style="margin:6px 0 10px;opacity:.8">${esc(sorted[0].name)} wins</p>
   ${sorted.map(p=>`<div class="rank"><span>#${p.place} ${esc(p.name)}</span><span>${p.id===G.you?'you':''}</span></div>`).join('')}<p></p>
@@ -279,6 +286,13 @@ function fit(){
     cs.forEach((c,i)=>{c.style.left=off+i*step+'px';c.style.zIndex=i});
   });
 }
+setInterval(()=>{const b=document.getElementById('bt');if(b&&G&&G.wait)b.textContent='Waiting for '+G.wait.name+' to reconnect… '+mmss()},500);
+async function keepAwake(){try{if(G&&G.phase==='playing'&&'wakeLock' in navigator&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}catch(e){}}
+document.addEventListener('visibilitychange',()=>{ // phones drop the connection while the screen is locked: reconnect the moment we're back
+  if(document.visibilityState!=='visible')return;
+  if(T&&(!es||es.readyState!==1))connect();
+  keepAwake();
+});
 addEventListener('resize',()=>G&&render());
 if(T)connect();else render();
 </script>

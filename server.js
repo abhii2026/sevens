@@ -1,6 +1,7 @@
 'use strict';
 // Sevens – internet multiplayer. Rooms + share links. `node server.js` or any Node host.
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
+const GRACE = +process.env.GRACE_MS || 90000, DEBOUNCE = +process.env.DEBOUNCE_MS || 8000; // how long a dropped player is waited for / when we announce it
 const PORT = +process.env.PORT || 3000, MAX = 12, MAX_ROOMS = 80, H7 = 19; // card id = suit*13 + rank-1 ; 7♥ = 19
 const RK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'], SY = ['♠', '♥', '♦', '♣'];
 const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -38,26 +39,38 @@ const legal = (S, p) => p.hand.filter(id => canPlay(S, id));
 
 function view(S, p) {
   const cur = S.turn >= 0 ? S.players[S.turn] : null;
+  const wait = S.phase === 'playing' && cur && !cur.on && !cur.bot && cur.deadline && legal(S, cur).length
+    ? { name: cur.name, left: Math.max(0, Math.ceil((cur.deadline - Date.now()) / 1000)) } : null;
   return {
     phase: S.phase, you: p.id, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
-    players: S.players.map(q => ({ id: q.id, name: q.name, n: q.hand.length, on: q.on, place: q.place, spec: q.spectator })),
+    players: S.players.map(q => ({ id: q.id, name: q.name, n: q.hand.length, on: q.on, bot: !!q.bot, place: q.place, spec: q.spectator })),
     board: S.board, turn: cur ? cur.id : null, hand: p.hand, legal: cur === p ? legal(S, p) : [],
     last: S.last, log: S.log.slice(-5), spec: p.spectator, place: p.place,
-    chat: S.chat.slice(-40), alert: S.alert
+    chat: S.chat.slice(-40), alert: S.alert, wait
   };
 }
 function push(S) {
   for (const p of S.players) for (const res of conns.get(p.t) || []) res.write('data: ' + JSON.stringify(view(S, p)) + '\n\n');
   clearTimeout(S.timer);
-  if (S.phase !== 'playing') return;
+  if (S.phase !== 'playing' || !S.players.some(x => x.on)) return; // nobody connected: freeze the table
   const p = S.players[S.turn], l = legal(S, p);
   if (!l.length) S.timer = setTimeout(() => { addLog(S, p.name + ' has no move and passes'); afterMove(S); }, 1500);
-  else if (!p.on) S.timer = setTimeout(() => play(S, p, l[crypto.randomInt(l.length)]), 2500);
+  else if (!p.on && p.bot) S.timer = setTimeout(() => play(S, p, botPick(p, l)), 1200); // grace over: a bot plays, but only for absent players
 }
 function addLog(S, t) { S.log.push(t); if (S.log.length > 30) S.log.shift(); }
 function addChat(S, name, text, sys) {
   S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys });
   if (S.chat.length > 80) S.chat.splice(0, S.chat.length - 80);
+}
+function notify(S, msg) { addChat(S, '', msg, true); S.alert = { id: S.chatSeq, msg }; }
+function botPick(p, l) { // shed far-from-7 cards first, keep 7s back (they open suits for opponents), prefer finishing own runs
+  let best = l[0], bs = -1e9;
+  for (const id of l) {
+    const r = id % 13 + 1, nxt = r > 7 ? id + 1 : id - 1;
+    const sc = Math.abs(r - 7) - (r === 7 ? 4 : 0) + (r !== 7 && p.hand.includes(nxt) ? 2 : 0) + Math.random() * 1.5;
+    if (sc > bs) { bs = sc; best = id; }
+  }
+  return best;
 }
 function maybeLastThree(S) {
   if (S.phase !== 'playing' || S.endAlerted) return;
@@ -84,7 +97,10 @@ function afterMove(S) {
     S.phase = 'over'; S.turn = -1; addLog(S, 'Round over');
   } else {
     advance(S);
-    maybeLastThree(S);
+    if (S.players.filter(active).every(q => !legal(S, q).length)) { // safety net: nobody can ever move again
+      S.players.filter(active).sort((a, b) => a.hand.length - b.hand.length).forEach(q => { q.done = true; q.place = ++S.places; });
+      S.phase = 'over'; S.turn = -1; addLog(S, 'Round over');
+    } else maybeLastThree(S);
   }
   push(S);
 }
@@ -126,7 +142,7 @@ function dropRoom(S) {
 function scheduleIdle(S) {
   clearTimeout(S.idle);
   if (S.players.some(x => x.on)) return;
-  S.idle = setTimeout(() => { if (!S.players.some(x => x.on)) dropRoom(S); }, 60000);
+  S.idle = setTimeout(() => { if (!S.players.some(x => x.on)) dropRoom(S); }, S.phase === 'playing' ? 300000 : 60000);
 }
 
 function join(b) {
@@ -142,8 +158,14 @@ function join(b) {
     S = makeRoom(newCode());
     rooms.set(S.code, S);
   }
+  const base = String(b.name || '').trim().slice(0, 14) || 'Player';
+  const ex = S.players.find(x => !x.on && x.name.toLowerCase() === base.toLowerCase());
+  if (ex) { // same name as a disconnected player: take the seat (and hand) back, e.g. after switching device
+    byToken.delete(ex.t); ex.t = crypto.randomBytes(12).toString('hex'); ex.left = false; byToken.set(ex.t, { S, p: ex });
+    return { t: ex.t, room: S.code };
+  }
   if (S.players.length >= MAX) return { err: 'The table is full (' + MAX + ' players)' };
-  const base = String(b.name || '').trim().slice(0, 14) || 'Player'; let nm = base, k = 2;
+  let nm = base, k = 2;
   while (S.players.some(x => x.name === nm)) nm = base + ' ' + k++;
   const p = { id: S.nid++, t: crypto.randomBytes(12).toString('hex'), name: nm, hand: [], on: false, done: false, place: 0, spectator: S.phase === 'playing' };
   S.players.push(p); byToken.set(p.t, { S, p }); push(S); return { t: p.t, room: S.code };
@@ -163,6 +185,23 @@ function act(b) {
     if (S.phase !== 'playing' || S.players[S.turn] !== p) return { err: 'Not your turn' };
     if (!p.hand.includes(b.id) || !canPlay(S, b.id)) return { err: 'That card cannot be played' };
     play(S, p, b.id); return {};
+  }
+  if (b.a === 'skipwait') {
+    if (p.id !== hostId(S)) return { err: 'Only the host can do that' };
+    const cur = S.phase === 'playing' ? S.players[S.turn] : null;
+    if (!cur || cur.on || cur.bot) return { err: 'Nobody to skip' };
+    clearTimeout(cur.btimer); cur.bot = true;
+    notify(S, 'The host stopped waiting. A bot is playing for ' + cur.name + '.'); push(S); return {};
+  }
+  if (b.a === 'leave') {
+    if (S.phase === 'playing' && !p.spectator && !p.done) {
+      p.left = true; p.bot = true; p.on = false; p.announced = true; clearTimeout(p.dtimer); clearTimeout(p.btimer);
+      for (const r of conns.get(p.t) || []) try { r.end(); } catch (e) {}
+      conns.delete(p.t);
+      notify(S, p.name + ' left the game. A bot will play their cards; they can rejoin with the same name.');
+    } else { notify(S, p.name + ' left the table.'); forgetPlayer(S, p); }
+    if (S.players.length) push(S);
+    scheduleIdle(S); return {};
   }
   if (b.a === 'chat') {
     const text = String(b.msg || '').replace(/\s+/g, ' ').trim().slice(0, 160);
@@ -192,14 +231,30 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     res.write('retry: 1500\n\n');
     if (!conns.has(p.t)) conns.set(p.t, new Set());
-    conns.get(p.t).add(res); p.on = true; clearTimeout(S.idle);
+    conns.get(p.t).add(res);
+    const was = !p.on; p.on = true; p.left = false; p.bot = false; p.deadline = 0;
+    clearTimeout(S.idle); clearTimeout(p.dtimer); clearTimeout(p.btimer);
+    if (was && p.announced) { p.announced = false; notify(S, p.name + ' is back' + (S.phase === 'playing' && p.hand.length ? ' with ' + p.hand.length + ' cards' : '') + '.'); }
     res.on('close', () => {
       const set = conns.get(p.t); if (set) set.delete(res);
       if (set && set.size) return;
+      const cur = byToken.get(p.t); if (!cur || cur.p !== p || p.left) return;
       p.on = false;
       if (S.phase !== 'playing') setTimeout(() => {
         if (!p.on && S.phase !== 'playing' && rooms.get(S.code) === S) { forgetPlayer(S, p); if (S.players.length) push(S); }
       }, 20000);
+      else if (!p.spectator && !p.done) {
+        p.deadline = Date.now() + GRACE;
+        p.dtimer = setTimeout(() => { // announce only if it's not just a brief screen-lock flicker
+          if (p.on || p.left || p.bot) return;
+          p.announced = true; notify(S, p.name + ' lost connection. Waiting up to ' + Math.round(GRACE / 1000) + ' seconds for them to come back.'); push(S);
+        }, DEBOUNCE);
+        p.btimer = setTimeout(() => {
+          if (p.on || p.left) return;
+          p.bot = true; if (p.announced) notify(S, p.name + ' didn\u2019t return, so a bot is playing their cards. They can still rejoin.');
+          push(S);
+        }, GRACE);
+      }
       scheduleIdle(S);
       if (rooms.get(S.code) === S) push(S);
     });
