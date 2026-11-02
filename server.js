@@ -1,8 +1,8 @@
 'use strict';
 // Sevens – internet multiplayer. Rooms + share links. `node server.js` or any Node host.
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
-const GRACE = +process.env.GRACE_MS || 90000, DEBOUNCE = +process.env.DEBOUNCE_MS || 8000; // how long a dropped player is waited for / when we announce it
-const JOIN_WAIT = +process.env.JOIN_WAIT_MS || 15000; // time allowed for a newly joined token to open /events
+const GRACE = +process.env.GRACE_MS || 90000, DEBOUNCE = +process.env.DEBOUNCE_MS || 8000;
+const JOIN_WAIT = +process.env.JOIN_WAIT_MS || 15000;
 const PORT = +process.env.PORT || 3000, MAX = 12, MAX_ROOMS = 80, H7 = 19; // card id = suit*13 + rank-1 ; 7♥ = 19
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
 const RK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'], SY = ['♠', '♥', '♦', '♣'];
@@ -89,16 +89,47 @@ function addChat(S, name, text, sys) {
 }
 function notify(S, msg) { addChat(S, '', msg, true); S.alert = { id: S.chatSeq, msg }; }
 
-// ============ Bot: plays for absent players using only PUBLIC information ============
-// It sees its own hand, the board, how many cards each seat holds and who has passed (a pass proves the player
-// held none of the cards that were playable then). It samples possible hidden hands consistent with that, plays each
-// candidate card out to the end of the round many times (determinized Monte-Carlo) and picks the card that wins most.
+// ============ Bot: Traps opponents with high-point cards (8..K) while shedding its own heavy cards ============
 const BOT_MS = +process.env.BOT_MS || 60;
 const OWN = Array.from({ length: Math.max(16, MAX + 4) }, () => new Uint8Array(52)), TMP = [];
-const reward = (k, m) => m < 2 ? 1 : (k === 1 ? 0.7 : 0) + 0.3 * (m - k) / (m - 1); // winning matters most, earlier finish still counts
 
-// Fast rule of thumb used inside the simulations: avoid exposing a card the opponents might hold, dump high-point cards that
-// expose nothing (A, K, or ones whose follow-up I hold), keep 7s back because they open a suit for everyone.
+// Evaluates a candidate move `id`:
+// - Rewards shedding high point cards ONLY when doing so doesn't unlock even heavier cards (10, J, Q, K) for opponents.
+// - Heavily penalizes opening a 7 or advancing the upper run (8..Q) when opponents hold the higher cards in that suit.
+// - Prefers advancing the lower run (6..A, worth only 1..6 pts) to burn turns while keeping opponents' high cards trapped.
+function evalMove(id, own, lo, hi) {
+  const s = (id / 13) | 0, r = id - s * 13 + 1, base = s * 13;
+  let myAbovePts = 0, oppAbovePts = 0, myBelowPts = 0, oppBelowPts = 0;
+  for (let rk = r + 1; rk <= 13; rk++) {
+    if (own[base + rk - 1]) myAbovePts += rk;
+    else oppAbovePts += rk;
+  }
+  for (let rk = 1; rk < r; rk++) {
+    if (own[base + rk - 1]) myBelowPts += rk;
+    else oppBelowPts += rk;
+  }
+
+  let sc = 0;
+  if (r === 7) {
+    // Opening a suit unlocks both directions: only open if we hold strong follow-ups or high cards in this suit
+    sc += 0.55 * (myAbovePts + myBelowPts) - 0.45 * oppAbovePts - 0.15 * oppBelowPts - 4;
+    if (own[id - 1]) sc += 2.5;
+    if (own[id + 1]) sc += 3.5;
+  } else if (r > 7) {
+    // Upper branch (8..K): high point cards at stake!
+    // Shedding r gives us +r points saved, plus unlocks our own higher cards, minus unlocking opponents' higher cards
+    sc += r * 0.45 + 0.65 * myAbovePts - 0.55 * oppAbovePts;
+    if (r < 13 && own[id + 1]) sc += 4; // we hold the immediate next high card
+    if (oppAbovePts === 0) sc += 6;     // safe terminal play: unlocks zero points for opponents!
+  } else {
+    // Lower branch (A..6): advancing low cards unlocks at most 1..5 pt cards for opponents while stalling high suits
+    sc += r * 0.25 + 0.5 * myBelowPts - 0.18 * oppBelowPts + 1.5;
+    if (r > 1 && own[id - 1]) sc += 3;
+    if (oppBelowPts === 0) sc += 4;     // safe low terminal play
+  }
+  return sc;
+}
+
 function heurPick(h, own, lo, hi, eps) {
   TMP.length = 0;
   for (let i = 0; i < h.length; i++) {
@@ -108,25 +139,43 @@ function heurPick(h, own, lo, hi, eps) {
   if (!TMP.length) return -1;
   if (TMP.length === 1) return TMP[0];
   if (eps && Math.random() < eps) return TMP[(Math.random() * TMP.length) | 0];
-  let best = -1, bs = -1e9;
+  let best = TMP[0], bs = -1e9;
   for (let i = 0; i < TMP.length; i++) {
-    const id = TMP[i], s = (id / 13) | 0, r = id - s * 13 + 1;
-    let sc = 0.15 * Math.abs(r - 7) + 0.04 * r + Math.random() * 0.2;
-    if (lo[s] === 0) sc += (own[id - 1] ? 1 : -3) + (own[id + 1] ? 1 : -3) - 1;
-    else if (r < lo[s]) sc += r > 1 ? (own[id - 1] ? 1 : -3) : 1.5;
-    else sc += r < 13 ? (own[id + 1] ? 1 : -3) : 1.5;
+    const id = TMP[i];
+    const sc = evalMove(id, own, lo, hi) + Math.random() * 0.15;
     if (sc > bs) { bs = sc; best = id; }
   }
   return best;
 }
+
 function applyCard(lo, hi, id) {
   const s = (id / 13) | 0, r = id - s * 13 + 1;
   if (lo[s] === 0) lo[s] = hi[s] = r; else if (r < lo[s]) lo[s] = r; else hi[s] = r;
 }
-// One imagined game from a fully specified deal. Returns how good the outcome is for seat `me`.
+
+// Compute point-based outcome when the round ends (first player out or deadlock):
+// - Minimizes `me`'s remaining points AND maximizes opponents' remaining trapped points!
+function scoreRolloutOutcome(hands, me) {
+  const myPts = handPts(hands[me]);
+  let oppTotal = 0, oppMax = 0, oppCount = 0;
+  for (let i = 0; i < hands.length; i++) {
+    if (i === me) continue;
+    const pts = handPts(hands[i]);
+    oppTotal += pts;
+    if (pts > oppMax) oppMax = pts;
+    oppCount++;
+  }
+  const avgOpp = oppCount ? oppTotal / oppCount : 0;
+  // Going out first (myPts === 0) is best, with extra reward for trapping opponents with heavy points
+  if (myPts === 0) return 1.0 + 0.008 * avgOpp + 0.004 * oppMax;
+  // Otherwise, prefer having fewer points than opponents
+  return Math.max(0.05, 0.65 + 0.006 * (avgOpp - myPts));
+}
+
+// One imagined game from a fully specified deal. Ends immediately when the first player empties their hand!
 function rollout(hands, lo, hi, me, m0, eps) {
   const n = hands.length;
-  if (!hands[me].length) return reward(1, m0);
+  if (!hands[me].length) return scoreRolloutOutcome(hands, me);
   let activeCount = 0;
   for (let i = 0; i < n; i++) {
     const h = hands[i];
@@ -136,21 +185,26 @@ function rollout(hands, lo, hi, me, m0, eps) {
     for (let j = 0; j < h.length; j++) o[h[j]] = 1;
     if (h.length) activeCount++;
   }
-  let finished = 0, idle = 0, turn = (me + 1) % n;
-  for (let step = 0; step < 800; step++) {
+  let idle = 0, turn = (me + 1) % n;
+  for (let step = 0; step < 400; step++) {
     const h = hands[turn];
     if (h.length) {
       const id = heurPick(h, OWN[turn], lo, hi, turn === me ? 0 : eps);
-      if (id < 0) { if (++idle >= activeCount) return 0.1; }
-      else {
-        idle = 0; const j = h.indexOf(id); h[j] = h[h.length - 1]; h.pop(); OWN[turn][id] = 0; applyCard(lo, hi, id);
-        if (!h.length) { finished++; activeCount--; if (turn === me) return reward(finished, m0); }
+      if (id < 0) {
+        if (++idle >= activeCount) return scoreRolloutOutcome(hands, me);
+      } else {
+        idle = 0;
+        const j = h.indexOf(id); h[j] = h[h.length - 1]; h.pop();
+        OWN[turn][id] = 0; applyCard(lo, hi, id);
+        // Round ends the moment ANY player plays their last card!
+        if (!h.length) return scoreRolloutOutcome(hands, me);
       }
     }
     turn = turn + 1 === n ? 0 : turn + 1;
   }
-  return 0.1;
+  return scoreRolloutOutcome(hands, me);
 }
+
 // Deal the unseen cards to opponents at random, never giving a player a card they proved (by passing) they don't hold.
 function sampleHands(unseen, seats, me, myHand) {
   const n = seats.length, opp = [];
@@ -197,7 +251,7 @@ function botChoose(o) {
     for (let m = 0; m < moves.length; m++) {
       const hands = base.map(h => h.slice()), h = hands[me], l2 = lo.slice(), h2 = hi.slice();
       h.splice(h.indexOf(moves[m]), 1); applyCard(l2, h2, moves[m]);
-      vals[m] += rollout(hands, l2, h2, me, m0, 0.1);
+      vals[m] += rollout(hands, l2, h2, me, m0, 0.08);
     }
     samples++;
     if (samples >= 4000 || (samples >= 10 && Date.now() - t0 >= budget)) break;
@@ -222,27 +276,23 @@ function recordPass(S, p) { // a pass proves the player holds none of the cards 
   for (let id = 0; id < 52; id++) if (canPlay(S, id)) p.void.add(id);
 }
 
-function maybeLastThree(S) {
-  if (S.phase !== 'playing' || S.endAlerted) return;
-  const holders = [];
-  let left = 0;
-  for (let i = 0; i < S.players.length; i++) {
-    const p = S.players[(S.turn + i) % S.players.length];
-    if (active(p) && p.hand.length) { left += p.hand.length; holders.push(p.name); }
-  }
-  if (left !== 3) return;
-  S.endAlerted = true;
-  S.alert = { id: S.chatSeq + 1, msg: 'Last three cards sure: ' + holders.join(' & ') };
-  addChat(S, '', S.alert.msg, true);
-}
-
 function advance(S) {
   const n = S.players.length;
   for (let i = 1; i <= n; i++) { const j = (S.turn + i) % n; if (active(S.players[j])) { S.turn = j; return; } }
 }
-function finishRound(S) {
+
+// Tallies remaining cards for every player in the room when the round ends:
+// A=1, 2..10=face value, J=11, Q=12, K=13.
+function finishRound(S, winner) {
   S.phase = 'over';
   S.turn = -1;
+  // Rank remaining active players by their round points (lowest remaining points first)
+  const remaining = S.players.filter(q => !q.spectator && !q.done);
+  remaining.sort((a, b) => handPts(a.hand) - handPts(b.hand) || a.hand.length - b.hand.length);
+  for (const q of remaining) {
+    q.done = true;
+    q.place = ++S.places;
+  }
   const summary = [];
   for (const q of S.players) {
     if (q.spectator) { q.roundPts = 0; q.leftCards = []; continue; }
@@ -251,30 +301,41 @@ function finishRound(S) {
     q.score = (q.score || 0) + q.roundPts;
     if (q.roundPts > 0) summary.push(q.name + ' +' + q.roundPts + ' pts');
   }
-  addLog(S, 'Round over' + (summary.length ? ' · ' + summary.join(', ') : ''));
+  const prefix = winner ? (winner.name + ' went out first! ') : 'Round ended (board locked). ';
+  addLog(S, prefix + (summary.length ? summary.join(', ') : '0 pts added'));
 }
+
 function afterMove(S) {
+  if (S.phase === 'over') { push(S); return; }
   const left = S.players.filter(active);
-  if (left.length <= 1) {
-    if (left.length) { left[0].done = true; left[0].place = ++S.places; }
-    finishRound(S);
+  if (!left.length) {
+    finishRound(S, null);
   } else {
     advance(S);
-    if (S.players.filter(active).every(q => !legal(S, q).length)) { // safety net: nobody can ever move again
-      S.players.filter(active).sort((a, b) => handPts(a.hand) - handPts(b.hand) || a.hand.length - b.hand.length).forEach(q => { q.done = true; q.place = ++S.places; });
-      finishRound(S);
-    } else maybeLastThree(S);
+    if (S.players.filter(active).every(q => !legal(S, q).length)) { // safety net: nobody can move again
+      finishRound(S, null);
+    }
   }
   push(S);
 }
+
 function play(S, p, id) {
   p.hand.splice(p.hand.indexOf(id), 1);
   const s = id / 13 | 0, r = id % 13 + 1, b = S.board[s];
   if (!b) S.board[s] = [r, r]; else if (r < b[0]) b[0] = r; else b[1] = r;
   S.started = true; S.last = id; addLog(S, p.name + ' played ' + cardName(id));
-  if (!p.hand.length) { p.done = true; p.place = ++S.places; addLog(S, p.name + ' is out – place #' + p.place); }
+  // As soon as this player plays their last card, the round ends immediately
+  // and all other players' remaining cards are added to their totals!
+  if (!p.hand.length) {
+    p.done = true;
+    p.place = ++S.places;
+    finishRound(S, p);
+    push(S);
+    return;
+  }
   afterMove(S);
 }
+
 function start(S) {
   for (const p of [...S.players]) if (!p.on) forgetPlayer(S, p);
   const n = S.players.length;
@@ -338,7 +399,6 @@ function join(b) {
   const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing' };
   S.players.push(p);
   byToken.set(p.t, { S, p });
-  // Expire unactivated player records that never establish an /events stream:
   p.dtimer = setTimeout(() => {
     if (!p.on && rooms.get(S.code) === S) {
       forgetPlayer(S, p);
@@ -448,7 +508,7 @@ function createAppServer() {
           }, 20000);
         } else if (!p.spectator && !p.done) {
           p.deadline = Date.now() + GRACE;
-          p.dtimer = setTimeout(() => { // announce only if it's not just a brief screen-lock flicker
+          p.dtimer = setTimeout(() => {
             if (p.on || p.left || p.bot) return;
             p.announced = true; notify(S, p.name + ' lost connection. Waiting up to ' + Math.round(GRACE / 1000) + ' seconds for them to come back.'); push(S);
           }, DEBOUNCE);
@@ -517,4 +577,4 @@ if (require.main === module) {
   }, 15000);
 }
 
-module.exports = { botChoose, heurChoose, cardPts, handPts, createAppServer, rooms, byToken };
+module.exports = { botChoose, heurChoose, evalMove, cardPts, handPts, createAppServer, rooms, byToken };
