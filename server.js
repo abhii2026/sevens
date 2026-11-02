@@ -21,6 +21,8 @@ const conns = new Map(); // token -> Set(res)
 const rateMap = new Map(); // ip -> { count, resetAt }
 
 const cardName = id => RK[id % 13 + 1] + SY[id / 13 | 0];
+const cardPts = id => (id % 13) + 1; // A=1, 2..10=2..10, J=11, Q=12, K=13
+const handPts = hand => hand.reduce((sum, id) => sum + cardPts(id), 0);
 const active = p => !p.spectator && !p.done;
 const hostId = S => { const h = S.players.find(p => p.on) || S.players[0]; return h ? h.id : null; };
 const normRoom = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
@@ -43,7 +45,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alert: null, endAlerted: false };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alert: null, endAlerted: false };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -59,8 +61,14 @@ function view(S, p) {
   const wait = S.phase === 'playing' && cur && !cur.on && !cur.bot && cur.deadline && legal(S, cur).length
     ? { name: cur.name, left: Math.max(0, Math.ceil((cur.deadline - Date.now()) / 1000)) } : null;
   return {
-    phase: S.phase, you: p.id, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
-    players: S.players.map(q => ({ id: q.id, name: q.name, n: q.hand.length, on: q.on, bot: !!q.bot, place: q.place, spec: q.spectator })),
+    phase: S.phase, round: S.round || 0, you: p.id, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
+    players: S.players.map(q => ({
+      id: q.id, name: q.name, n: q.hand.length, on: q.on, bot: !!q.bot,
+      place: q.place, spec: q.spectator,
+      score: q.score || 0,
+      roundPts: q.roundPts || 0,
+      leftCards: S.phase === 'over' ? (q.leftCards || []) : []
+    })),
     board: S.board, turn: cur ? cur.id : null, hand: p.hand, legal: cur === p ? legal(S, p) : [],
     last: S.last, log: S.log.slice(-5), spec: p.spectator, place: p.place,
     chat: S.chat.slice(-40), alert: S.alert, wait
@@ -89,7 +97,7 @@ const BOT_MS = +process.env.BOT_MS || 60;
 const OWN = Array.from({ length: Math.max(16, MAX + 4) }, () => new Uint8Array(52)), TMP = [];
 const reward = (k, m) => m < 2 ? 1 : (k === 1 ? 0.7 : 0) + 0.3 * (m - k) / (m - 1); // winning matters most, earlier finish still counts
 
-// Fast rule of thumb used inside the simulations: avoid exposing a card the opponents might hold, dump cards that
+// Fast rule of thumb used inside the simulations: avoid exposing a card the opponents might hold, dump high-point cards that
 // expose nothing (A, K, or ones whose follow-up I hold), keep 7s back because they open a suit for everyone.
 function heurPick(h, own, lo, hi, eps) {
   TMP.length = 0;
@@ -103,7 +111,7 @@ function heurPick(h, own, lo, hi, eps) {
   let best = -1, bs = -1e9;
   for (let i = 0; i < TMP.length; i++) {
     const id = TMP[i], s = (id / 13) | 0, r = id - s * 13 + 1;
-    let sc = 0.15 * Math.abs(r - 7) + Math.random() * 0.2;
+    let sc = 0.15 * Math.abs(r - 7) + 0.04 * r + Math.random() * 0.2;
     if (lo[s] === 0) sc += (own[id - 1] ? 1 : -3) + (own[id + 1] ? 1 : -3) - 1;
     else if (r < lo[s]) sc += r > 1 ? (own[id - 1] ? 1 : -3) : 1.5;
     else sc += r < 13 ? (own[id + 1] ? 1 : -3) : 1.5;
@@ -232,16 +240,29 @@ function advance(S) {
   const n = S.players.length;
   for (let i = 1; i <= n; i++) { const j = (S.turn + i) % n; if (active(S.players[j])) { S.turn = j; return; } }
 }
+function finishRound(S) {
+  S.phase = 'over';
+  S.turn = -1;
+  const summary = [];
+  for (const q of S.players) {
+    if (q.spectator) { q.roundPts = 0; q.leftCards = []; continue; }
+    q.roundPts = handPts(q.hand);
+    q.leftCards = q.hand.slice();
+    q.score = (q.score || 0) + q.roundPts;
+    if (q.roundPts > 0) summary.push(q.name + ' +' + q.roundPts + ' pts');
+  }
+  addLog(S, 'Round over' + (summary.length ? ' · ' + summary.join(', ') : ''));
+}
 function afterMove(S) {
   const left = S.players.filter(active);
   if (left.length <= 1) {
     if (left.length) { left[0].done = true; left[0].place = ++S.places; }
-    S.phase = 'over'; S.turn = -1; addLog(S, 'Round over');
+    finishRound(S);
   } else {
     advance(S);
     if (S.players.filter(active).every(q => !legal(S, q).length)) { // safety net: nobody can ever move again
-      S.players.filter(active).sort((a, b) => a.hand.length - b.hand.length).forEach(q => { q.done = true; q.place = ++S.places; });
-      S.phase = 'over'; S.turn = -1; addLog(S, 'Round over');
+      S.players.filter(active).sort((a, b) => handPts(a.hand) - handPts(b.hand) || a.hand.length - b.hand.length).forEach(q => { q.done = true; q.place = ++S.places; });
+      finishRound(S);
     } else maybeLastThree(S);
   }
   push(S);
@@ -260,13 +281,18 @@ function start(S) {
   if (n < 2) { push(S); return { err: 'At least 2 connected players are needed' }; }
   const deck = [...Array(52).keys()];
   for (let i = 51; i > 0; i--) { const j = crypto.randomInt(i + 1); [deck[i], deck[j]] = [deck[j], deck[i]]; }
-  S.players.forEach(p => { p.hand = []; p.done = false; p.place = 0; p.spectator = false; p.bot = false; p.left = false; p.void = new Set(); });
+  S.round = (S.round || 0) + 1;
+  S.players.forEach(p => {
+    p.hand = []; p.done = false; p.place = 0; p.spectator = false;
+    p.bot = false; p.left = false; p.void = new Set();
+    p.score = p.score || 0; p.roundPts = 0; p.leftCards = [];
+  });
   deck.forEach((c, i) => S.players[i % n].hand.push(c));
   S.players.forEach(p => p.hand.sort((a, b) => a - b));
   S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.log = [];
   S.alert = null; S.endAlerted = false;
   S.turn = S.players.findIndex(p => p.hand.includes(H7)); S.phase = 'playing';
-  addLog(S, 'Dealt to ' + n + ' players. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
+  addLog(S, 'Round ' + S.round + ' dealt to ' + n + ' players. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
   push(S); return {};
 }
 
@@ -309,7 +335,7 @@ function join(b) {
   if (S.players.length >= MAX) return { err: 'The table is full (' + MAX + ' players)' };
   let nm = base, k = 2;
   while (S.players.some(x => x.name.toLowerCase() === nm.toLowerCase())) nm = (base.slice(0, 11).trim() + ' ' + k++);
-  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), name: nm, hand: [], on: false, done: false, place: 0, spectator: S.phase === 'playing' };
+  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing' };
   S.players.push(p);
   byToken.set(p.t, { S, p });
   // Expire unactivated player records that never establish an /events stream:
@@ -335,6 +361,14 @@ function act(b) {
     if (p.id !== hostId(S)) return { err: 'Only the host can deal' };
     if (S.phase === 'playing') return { err: 'A round is in progress' };
     return start(S);
+  }
+  if (b.a === 'resetscores') {
+    if (p.id !== hostId(S)) return { err: 'Only the host can reset scores' };
+    if (S.phase === 'playing') return { err: 'Cannot reset during an active round' };
+    S.round = 0;
+    S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; });
+    notify(S, 'The host reset all table scores to 0.');
+    push(S); return {};
   }
   if (b.a === 'play') {
     const cid = Number.isInteger(b.id) ? b.id : -1;
@@ -483,4 +517,4 @@ if (require.main === module) {
   }, 15000);
 }
 
-module.exports = { botChoose, heurChoose, createAppServer, rooms, byToken }; // used by the offline strength test
+module.exports = { botChoose, heurChoose, cardPts, handPts, createAppServer, rooms, byToken };
