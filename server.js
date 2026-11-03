@@ -1,8 +1,8 @@
 'use strict';
 // Sevens – internet multiplayer. Rooms + share links. `node server.js` or any Node host.
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
-const GRACE = +process.env.GRACE_MS || 90000, DEBOUNCE = +process.env.DEBOUNCE_MS || 8000;
-const JOIN_WAIT = +process.env.JOIN_WAIT_MS || 15000;
+const GRACE = +process.env.GRACE_MS || 30000, DEBOUNCE = +process.env.DEBOUNCE_MS || 1500; // 30s reconnect grace window
+const JOIN_WAIT = +process.env.JOIN_WAIT_MS || 20000;
 const PORT = +process.env.PORT || 3000, MAX = 12, MAX_ROOMS = 80, H7 = 19; // card id = suit*13 + rank-1 ; 7♥ = 19
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
 const RK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'], SY = ['♠', '♥', '♦', '♣'];
@@ -27,7 +27,7 @@ const active = p => !p.spectator && !p.done;
 const hostId = S => { const h = S.players.find(p => p.on) || S.players[0]; return h ? h.id : null; };
 const normRoom = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 
-function checkRate(req, max = 60, windowMs = 10000) {
+function checkRate(req, max = 80, windowMs = 10000) {
   const ip = req.socket.remoteAddress || 'local';
   const now = Date.now();
   let rec = rateMap.get(ip);
@@ -54,12 +54,19 @@ function canPlay(S, id) {
   const s = id / 13 | 0, r = id % 13 + 1, b = S.board[s];
   return b ? (r === b[0] - 1 || r === b[1] + 1) : r === 7;
 }
-const legal = (S, p) => p.hand.filter(id => canPlay(S, id));
+const legal = (S, p) => (p && p.hand ? p.hand.filter(id => canPlay(S, id)) : []);
+
+function findWaitingPlayer(S) {
+  if (S.phase !== 'playing') return null;
+  const cur = S.turn >= 0 ? S.players[S.turn] : null;
+  if (cur && !cur.on && !cur.bot && cur.deadline > Date.now()) return cur;
+  return S.players.find(q => active(q) && !q.on && !q.bot && q.deadline > Date.now()) || null;
+}
 
 function view(S, p) {
   const cur = S.turn >= 0 ? S.players[S.turn] : null;
-  const wait = S.phase === 'playing' && cur && !cur.on && !cur.bot && cur.deadline && legal(S, cur).length
-    ? { name: cur.name, left: Math.max(0, Math.ceil((cur.deadline - Date.now()) / 1000)) } : null;
+  const wp = findWaitingPlayer(S);
+  const wait = wp ? { name: wp.name, left: Math.max(0, Math.ceil((wp.deadline - Date.now()) / 1000)) } : null;
   return {
     phase: S.phase, round: S.round || 0, you: p.id, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
     players: S.players.map(q => ({
@@ -74,29 +81,54 @@ function view(S, p) {
     chat: S.chat.slice(-40), alert: S.alert, wait
   };
 }
+
 function push(S) {
-  for (const p of S.players) for (const res of conns.get(p.t) || []) res.write('data: ' + JSON.stringify(view(S, p)) + '\n\n');
   clearTimeout(S.timer);
+  // Ensure S.turn is always a valid index of an active player when playing
+  if (S.phase === 'playing' && S.players.length) {
+    if (S.turn < 0 || S.turn >= S.players.length || !active(S.players[S.turn])) {
+      advance(S);
+    }
+  }
+  for (const p of S.players) {
+    const payload = 'data: ' + JSON.stringify(view(S, p)) + '\n\n';
+    for (const res of conns.get(p.t) || []) {
+      try { res.write(payload); } catch (e) {}
+    }
+  }
   if (S.phase !== 'playing' || !S.players.some(x => x.on)) return; // nobody connected: freeze the table
-  const p = S.players[S.turn], l = legal(S, p);
-  if (!l.length) S.timer = setTimeout(() => { addLog(S, p.name + ' has no move and passes'); recordPass(S, p); afterMove(S); }, 1500);
-  else if (!p.on && p.bot) S.timer = setTimeout(() => play(S, p, botMove(S, p, l)), 1200); // grace over: a bot plays, but only for absent players
+  const p = S.players[S.turn];
+  if (!p) return;
+  // If any active player is within their 30s reconnect grace window and it is their turn, pause and wait!
+  if (!p.on && !p.bot) return;
+  const l = legal(S, p);
+  if (!l.length) {
+    S.timer = setTimeout(() => {
+      if (S.phase !== 'playing' || S.players[S.turn] !== p) return;
+      addLog(S, p.name + ' has no move and passes');
+      recordPass(S, p);
+      afterMove(S);
+    }, 1200);
+  } else if (!p.on && p.bot) {
+    S.timer = setTimeout(() => {
+      if (S.phase !== 'playing' || S.players[S.turn] !== p || p.on || !p.bot) return;
+      const curLegal = legal(S, p);
+      if (curLegal.length) play(S, p, botMove(S, p, curLegal));
+    }, 1000);
+  }
 }
+
 function addLog(S, t) { S.log.push(t); if (S.log.length > 30) S.log.shift(); }
-function addChat(S, name, text, sys) {
-  S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys });
+function addChat(S, name, text, sys, kind = '') {
+  S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys, kind });
   if (S.chat.length > 80) S.chat.splice(0, S.chat.length - 80);
 }
-function notify(S, msg) { addChat(S, '', msg, true); S.alert = { id: S.chatSeq, msg }; }
+function notify(S, msg, kind = '') { addChat(S, '', msg, true, kind); S.alert = { id: S.chatSeq, msg }; }
 
 // ============ Bot: Traps opponents with high-point cards (8..K) while shedding its own heavy cards ============
-const BOT_MS = +process.env.BOT_MS || 60;
+const BOT_MS = +process.env.BOT_MS || 50;
 const OWN = Array.from({ length: Math.max(16, MAX + 4) }, () => new Uint8Array(52)), TMP = [];
 
-// Evaluates a candidate move `id`:
-// - Rewards shedding high point cards ONLY when doing so doesn't unlock even heavier cards (10, J, Q, K) for opponents.
-// - Heavily penalizes opening a 7 or advancing the upper run (8..Q) when opponents hold the higher cards in that suit.
-// - Prefers advancing the lower run (6..A, worth only 1..6 pts) to burn turns while keeping opponents' high cards trapped.
 function evalMove(id, own, lo, hi) {
   const s = (id / 13) | 0, r = id - s * 13 + 1, base = s * 13;
   let myAbovePts = 0, oppAbovePts = 0, myBelowPts = 0, oppBelowPts = 0;
@@ -111,21 +143,17 @@ function evalMove(id, own, lo, hi) {
 
   let sc = 0;
   if (r === 7) {
-    // Opening a suit unlocks both directions: only open if we hold strong follow-ups or high cards in this suit
     sc += 0.55 * (myAbovePts + myBelowPts) - 0.45 * oppAbovePts - 0.15 * oppBelowPts - 4;
     if (own[id - 1]) sc += 2.5;
     if (own[id + 1]) sc += 3.5;
   } else if (r > 7) {
-    // Upper branch (8..K): high point cards at stake!
-    // Shedding r gives us +r points saved, plus unlocks our own higher cards, minus unlocking opponents' higher cards
     sc += r * 0.45 + 0.65 * myAbovePts - 0.55 * oppAbovePts;
-    if (r < 13 && own[id + 1]) sc += 4; // we hold the immediate next high card
-    if (oppAbovePts === 0) sc += 6;     // safe terminal play: unlocks zero points for opponents!
+    if (r < 13 && own[id + 1]) sc += 4;
+    if (oppAbovePts === 0) sc += 6;
   } else {
-    // Lower branch (A..6): advancing low cards unlocks at most 1..5 pt cards for opponents while stalling high suits
     sc += r * 0.25 + 0.5 * myBelowPts - 0.18 * oppBelowPts + 1.5;
     if (r > 1 && own[id - 1]) sc += 3;
-    if (oppBelowPts === 0) sc += 4;     // safe low terminal play
+    if (oppBelowPts === 0) sc += 4;
   }
   return sc;
 }
@@ -153,8 +181,6 @@ function applyCard(lo, hi, id) {
   if (lo[s] === 0) lo[s] = hi[s] = r; else if (r < lo[s]) lo[s] = r; else hi[s] = r;
 }
 
-// Compute point-based outcome when the round ends (first player out or deadlock):
-// - Minimizes `me`'s remaining points AND maximizes opponents' remaining trapped points!
 function scoreRolloutOutcome(hands, me) {
   const myPts = handPts(hands[me]);
   let oppTotal = 0, oppMax = 0, oppCount = 0;
@@ -166,13 +192,10 @@ function scoreRolloutOutcome(hands, me) {
     oppCount++;
   }
   const avgOpp = oppCount ? oppTotal / oppCount : 0;
-  // Going out first (myPts === 0) is best, with extra reward for trapping opponents with heavy points
   if (myPts === 0) return 1.0 + 0.008 * avgOpp + 0.004 * oppMax;
-  // Otherwise, prefer having fewer points than opponents
   return Math.max(0.05, 0.65 + 0.006 * (avgOpp - myPts));
 }
 
-// One imagined game from a fully specified deal. Ends immediately when the first player empties their hand!
 function rollout(hands, lo, hi, me, m0, eps) {
   const n = hands.length;
   if (!hands[me].length) return scoreRolloutOutcome(hands, me);
@@ -196,7 +219,6 @@ function rollout(hands, lo, hi, me, m0, eps) {
         idle = 0;
         const j = h.indexOf(id); h[j] = h[h.length - 1]; h.pop();
         OWN[turn][id] = 0; applyCard(lo, hi, id);
-        // Round ends the moment ANY player plays their last card!
         if (!h.length) return scoreRolloutOutcome(hands, me);
       }
     }
@@ -205,7 +227,6 @@ function rollout(hands, lo, hi, me, m0, eps) {
   return scoreRolloutOutcome(hands, me);
 }
 
-// Deal the unseen cards to opponents at random, never giving a player a card they proved (by passing) they don't hold.
 function sampleHands(unseen, seats, me, myHand) {
   const n = seats.length, opp = [];
   for (let i = 0; i < n; i++) if (i !== me && seats[i].n > 0) opp.push(i);
@@ -214,7 +235,7 @@ function sampleHands(unseen, seats, me, myHand) {
   for (let attempt = 0; attempt < 25; attempt++) {
     const cap = opp.map(i => seats[i].n), out = seats.map(() => []), cards = unseen.slice();
     for (let i = cards.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [cards[i], cards[j]] = [cards[j], cards[i]]; }
-    cards.sort((a, b) => elig[a] - elig[b]); // most constrained cards first
+    cards.sort((a, b) => elig[a] - elig[b]);
     let ok = true;
     for (const c of cards) {
       let tot = 0; for (let k = 0; k < opp.length; k++) if (cap[k] > 0 && !seats[opp[k]].void.has(c)) tot += cap[k];
@@ -235,7 +256,6 @@ function boardArrays(board) {
   for (let s = 0; s < 4; s++) if (board[s]) { lo[s] = board[s][0]; hi[s] = board[s][1]; }
   return [lo, hi];
 }
-// o = { hand, board:[[lo,hi]|null x4], seats:[{n, void:Set}], me, budgetMs }
 function botChoose(o) {
   const { hand, board, seats, me } = o, budget = o.budgetMs == null ? BOT_MS : o.budgetMs;
   const [lo, hi] = boardArrays(board), moves = movesFor(hand, lo, hi);
@@ -259,7 +279,7 @@ function botChoose(o) {
   let bi = 0; for (let m = 1; m < moves.length; m++) if (vals[m] > vals[bi]) bi = m;
   return moves[bi];
 }
-function heurChoose(hand, board) { // no search; used as a fallback and as a baseline
+function heurChoose(hand, board) {
   const [lo, hi] = boardArrays(board), own = new Uint8Array(52); hand.forEach(id => { own[id] = 1; });
   return heurPick(hand, own, lo, hi, 0);
 }
@@ -271,22 +291,25 @@ function botMove(S, p, l) {
     return l.includes(id) ? id : l[crypto.randomInt(l.length)];
   } catch (e) { return l[crypto.randomInt(l.length)]; }
 }
-function recordPass(S, p) { // a pass proves the player holds none of the cards that were playable right now
+function recordPass(S, p) {
   if (!p.void) p.void = new Set();
   for (let id = 0; id < 52; id++) if (canPlay(S, id)) p.void.add(id);
 }
 
 function advance(S) {
   const n = S.players.length;
-  for (let i = 1; i <= n; i++) { const j = (S.turn + i) % n; if (active(S.players[j])) { S.turn = j; return; } }
+  if (!n) { S.turn = -1; return; }
+  const startIdx = S.turn >= 0 && S.turn < n ? S.turn : 0;
+  for (let i = 1; i <= n; i++) {
+    const j = (startIdx + i) % n;
+    if (active(S.players[j])) { S.turn = j; return; }
+  }
 }
 
-// Tallies remaining cards for every player in the room when the round ends:
-// A=1, 2..10=face value, J=11, Q=12, K=13.
 function finishRound(S, winner) {
+  clearTimeout(S.timer);
   S.phase = 'over';
   S.turn = -1;
-  // Rank remaining active players by their round points (lowest remaining points first)
   const remaining = S.players.filter(q => !q.spectator && !q.done);
   remaining.sort((a, b) => handPts(a.hand) - handPts(b.hand) || a.hand.length - b.hand.length);
   for (const q of remaining) {
@@ -312,7 +335,7 @@ function afterMove(S) {
     finishRound(S, null);
   } else {
     advance(S);
-    if (S.players.filter(active).every(q => !legal(S, q).length)) { // safety net: nobody can move again
+    if (S.players.filter(active).every(q => !legal(S, q).length)) {
       finishRound(S, null);
     }
   }
@@ -320,12 +343,12 @@ function afterMove(S) {
 }
 
 function play(S, p, id) {
-  p.hand.splice(p.hand.indexOf(id), 1);
+  const idx = p.hand.indexOf(id);
+  if (idx < 0) return;
+  p.hand.splice(idx, 1);
   const s = id / 13 | 0, r = id % 13 + 1, b = S.board[s];
   if (!b) S.board[s] = [r, r]; else if (r < b[0]) b[0] = r; else b[1] = r;
   S.started = true; S.last = id; addLog(S, p.name + ' played ' + cardName(id));
-  // As soon as this player plays their last card, the round ends immediately
-  // and all other players' remaining cards are added to their totals!
   if (!p.hand.length) {
     p.done = true;
     p.place = ++S.places;
@@ -337,6 +360,7 @@ function play(S, p, id) {
 }
 
 function start(S) {
+  // Remove only disconnected lobby/spectator players; preserve any connected player
   for (const p of [...S.players]) if (!p.on) forgetPlayer(S, p);
   const n = S.players.length;
   if (n < 2) { push(S); return { err: 'At least 2 connected players are needed' }; }
@@ -345,7 +369,7 @@ function start(S) {
   S.round = (S.round || 0) + 1;
   S.players.forEach(p => {
     p.hand = []; p.done = false; p.place = 0; p.spectator = false;
-    p.bot = false; p.left = false; p.void = new Set();
+    p.bot = false; p.left = false; p.deadline = 0; p.void = new Set();
     p.score = p.score || 0; p.roundPts = 0; p.leftCards = [];
   });
   deck.forEach((c, i) => S.players[i % n].hand.push(c));
@@ -357,13 +381,25 @@ function start(S) {
   push(S); return {};
 }
 
+// Safely removes a player from S.players while preserving S.turn index integrity!
 function forgetPlayer(S, p) {
   clearTimeout(p.dtimer); clearTimeout(p.btimer);
+  const curTurnP = S.turn >= 0 && S.turn < S.players.length ? S.players[S.turn] : null;
+  const oldIdx = S.players.indexOf(p);
   S.players = S.players.filter(x => x !== p);
+  if (S.phase === 'playing' && S.players.length) {
+    if (curTurnP && curTurnP !== p) {
+      S.turn = S.players.indexOf(curTurnP);
+    } else if (oldIdx >= 0) {
+      S.turn = (oldIdx - 1 + S.players.length) % S.players.length;
+      advance(S);
+    }
+  }
   byToken.delete(p.t);
   for (const res of conns.get(p.t) || []) try { res.end(); } catch (e) {}
   conns.delete(p.t);
 }
+
 function dropRoom(S) {
   clearTimeout(S.timer); clearTimeout(S.idle);
   for (const p of [...S.players]) forgetPlayer(S, p);
@@ -382,7 +418,7 @@ function scheduleIdle(S) {
 function join(b) {
   const want = normRoom(b.room);
   const rec = b.t ? byToken.get(String(b.t)) : null;
-  if (rec && (!want || rec.S.code === want)) return { t: rec.p.t, room: rec.S.code };
+  if (rec && (!want || rec.S.code === want)) return { t: rec.p.t, room: rec.S.code, name: rec.p.name };
   let S;
   if (want) {
     S = rooms.get(want);
@@ -392,15 +428,44 @@ function join(b) {
     S = makeRoom(newCode());
     rooms.set(S.code, S);
   }
-  const base = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 14) || 'Player';
+  const rawName = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  const base = rawName || 'Player';
+  // Reclaim seat and hand if a disconnected player in this room matches the name (or if mid-game and only 1 active seat is disconnected and no custom name was typed):
+  let ex = S.players.find(x => !x.on && x.name.toLowerCase() === base.toLowerCase());
+  if (!ex && S.phase === 'playing') {
+    const droppedActive = S.players.filter(x => !x.on && !x.spectator);
+    if (droppedActive.length === 1 && (!rawName || droppedActive[0].name.toLowerCase().startsWith(base.toLowerCase()))) {
+      ex = droppedActive[0];
+    }
+  }
+  if (ex) {
+    clearTimeout(ex.dtimer); clearTimeout(ex.btimer);
+    const oldT = ex.t;
+    byToken.delete(oldT);
+    for (const r of conns.get(oldT) || []) try { r.end(); } catch (e) {}
+    conns.delete(oldT);
+    ex.t = crypto.randomBytes(16).toString('hex');
+    ex.left = false;
+    ex.bot = false;
+    ex.deadline = 0;
+    ex.rejoining = true;
+    byToken.set(ex.t, { S, p: ex });
+    // Start a fresh join timer in case /events is never opened
+    ex.dtimer = setTimeout(() => {
+      if (!ex.on && rooms.get(S.code) === S && S.phase === 'playing') {
+        ex.bot = true; ex.deadline = 0; push(S);
+      }
+    }, JOIN_WAIT);
+    return { t: ex.t, room: S.code, name: ex.name };
+  }
   if (S.players.length >= MAX) return { err: 'The table is full (' + MAX + ' players)' };
   let nm = base, k = 2;
   while (S.players.some(x => x.name.toLowerCase() === nm.toLowerCase())) nm = (base.slice(0, 11).trim() + ' ' + k++);
-  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing' };
+  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing', joinedOnce: false };
   S.players.push(p);
   byToken.set(p.t, { S, p });
   p.dtimer = setTimeout(() => {
-    if (!p.on && rooms.get(S.code) === S) {
+    if (!p.on && rooms.get(S.code) === S && (S.phase !== 'playing' || p.spectator)) {
       forgetPlayer(S, p);
       if (S.players.length) push(S);
       scheduleIdle(S);
@@ -408,7 +473,7 @@ function join(b) {
   }, JOIN_WAIT);
   scheduleIdle(S);
   push(S);
-  return { t: p.t, room: S.code };
+  return { t: p.t, room: S.code, name: p.name };
 }
 
 function act(b) {
@@ -417,42 +482,55 @@ function act(b) {
   const rec = b.t ? byToken.get(String(b.t)) : null;
   if (!rec) return { err: 'Not joined' };
   const { S, p } = rec;
+  // Any authenticated action from `p` proves `p` is actively online:
+  if (b.a !== 'leave' && (!p.on || p.bot)) {
+    p.on = true; p.bot = false; p.left = false; p.deadline = 0;
+    clearTimeout(p.dtimer); clearTimeout(p.btimer);
+  }
   if (b.a === 'start') {
-    if (p.id !== hostId(S)) return { err: 'Only the host can deal' };
-    if (S.phase === 'playing') return { err: 'A round is in progress' };
-    return start(S);
+    if (p.id !== hostId(S)) return { err: 'Only the host can deal', state: view(S, p) };
+    if (S.phase === 'playing') return { err: 'A round is in progress', state: view(S, p) };
+    const r = start(S);
+    return { ...r, state: view(S, p) };
   }
   if (b.a === 'resetscores') {
-    if (p.id !== hostId(S)) return { err: 'Only the host can reset scores' };
-    if (S.phase === 'playing') return { err: 'Cannot reset during an active round' };
+    if (p.id !== hostId(S)) return { err: 'Only the host can reset scores', state: view(S, p) };
+    if (S.phase === 'playing') return { err: 'Cannot reset during an active round', state: view(S, p) };
     S.round = 0;
     S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; });
     notify(S, 'The host reset all table scores to 0.');
-    push(S); return {};
+    push(S); return { state: view(S, p) };
   }
   if (b.a === 'play') {
     const cid = Number.isInteger(b.id) ? b.id : -1;
-    if (S.phase !== 'playing' || S.players[S.turn] !== p) return { err: 'Not your turn' };
-    if (!p.hand.includes(cid) || !canPlay(S, cid)) return { err: 'That card cannot be played' };
-    play(S, p, cid); return {};
+    if (S.phase !== 'playing' || S.players[S.turn] !== p) return { err: 'Not your turn', state: view(S, p) };
+    if (!p.hand.includes(cid) || !canPlay(S, cid)) return { err: 'That card cannot be played', state: view(S, p) };
+    play(S, p, cid); return { state: view(S, p) };
   }
   if (b.a === 'skipwait') {
-    if (p.id !== hostId(S)) return { err: 'Only the host can do that' };
-    const cur = S.phase === 'playing' ? S.players[S.turn] : null;
-    if (!cur || cur.on || cur.bot) return { err: 'Nobody to skip' };
-    clearTimeout(cur.btimer); cur.bot = true; cur.deadline = 0;
-    notify(S, 'The host stopped waiting. A bot is playing for ' + cur.name + '.'); push(S); return {};
+    if (p.id !== hostId(S)) return { err: 'Only the host can do that', state: view(S, p) };
+    const wp = findWaitingPlayer(S);
+    if (!wp) return { err: 'Nobody to skip', state: view(S, p) };
+    clearTimeout(wp.dtimer); clearTimeout(wp.btimer);
+    wp.bot = true; wp.deadline = 0;
+    notify(S, 'The host stopped waiting. A bot is playing for ' + wp.name + '.', 'leave');
+    push(S); return { state: view(S, p) };
   }
   if (b.a === 'leave') {
     if (S.phase === 'playing' && !p.spectator && !p.done) {
-      p.left = true; p.bot = true; p.on = false; p.deadline = 0; p.announced = true;
+      p.left = true; p.bot = false; p.on = false; p.deadline = Date.now() + GRACE; p.announced = true;
       clearTimeout(p.dtimer); clearTimeout(p.btimer);
-      byToken.delete(p.t);
       for (const r of conns.get(p.t) || []) try { r.end(); } catch (e) {}
       conns.delete(p.t);
-      notify(S, p.name + ' left the game. A bot will play their cards for this round.');
+      notify(S, p.name + ' left the game. Waiting ' + Math.round(GRACE / 1000) + 's before a bot plays their cards.', 'leave');
+      p.btimer = setTimeout(() => {
+        if (p.on) return;
+        p.bot = true; p.deadline = 0;
+        notify(S, p.name + ' didn\u2019t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards.', 'leave');
+        push(S);
+      }, GRACE);
     } else {
-      notify(S, p.name + ' left the table.');
+      notify(S, p.name + ' left the table.', 'leave');
       forgetPlayer(S, p);
     }
     scheduleIdle(S);
@@ -461,11 +539,11 @@ function act(b) {
   }
   if (b.a === 'chat') {
     const text = String(b.msg || '').replace(/\s+/g, ' ').trim().slice(0, 160);
-    if (!text) return { err: 'Type a message first' };
+    if (!text) return { err: 'Type a message first', state: view(S, p) };
     const now = Date.now();
-    if (p.chatAt && now - p.chatAt < 400) return { err: 'Wait a moment before sending again' };
+    if (p.chatAt && now - p.chatAt < 400) return { err: 'Wait a moment before sending again', state: view(S, p) };
     p.chatAt = now;
-    addChat(S, p.name, text, false); push(S); return {};
+    addChat(S, p.name, text, false); push(S); return { state: view(S, p) };
   }
   return { err: 'Unknown action' };
 }
@@ -482,25 +560,35 @@ function createAppServer() {
       return res.end('ok');
     }
     if (req.method === 'GET' && u.pathname === '/events') {
-      if (!checkRate(req, 60, 10000)) { res.writeHead(429, SEC_HEADERS); return res.end(); }
-      const rec = byToken.get(u.searchParams.get('t') || '');
+      if (!checkRate(req, 80, 10000)) { res.writeHead(429, SEC_HEADERS); return res.end(); }
+      const token = u.searchParams.get('t') || '';
+      const rec = byToken.get(token);
       if (!rec) { res.writeHead(404, SEC_HEADERS); return res.end(); }
       const { S, p } = rec;
       res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write('retry: 1500\n\n');
       if (!conns.has(p.t)) conns.set(p.t, new Set());
       conns.get(p.t).add(res);
-      const was = !p.on; p.on = true; p.left = false; p.bot = false; p.deadline = 0;
+      const was = !p.on;
+      p.on = true; p.left = false; p.bot = false; p.deadline = 0;
       clearTimeout(S.idle); clearTimeout(p.dtimer); clearTimeout(p.btimer);
-      if (was && p.announced) { p.announced = false; notify(S, p.name + ' is back' + (S.phase === 'playing' && p.hand.length ? ' with ' + p.hand.length + ' cards' : '') + '.'); }
+      if (!p.joinedOnce) {
+        p.joinedOnce = true;
+        addChat(S, '', p.name + ' joined the table.', true, 'join');
+      } else if (was && (p.announced || p.rejoining)) {
+        p.announced = false;
+        p.rejoining = false;
+        notify(S, p.name + ' rejoined the game' + (S.phase === 'playing' && p.hand.length ? ' (' + p.hand.length + ' cards)' : '') + '.', 'join');
+      }
       res.on('close', () => {
-        const set = conns.get(p.t); if (set) set.delete(res);
+        const set = conns.get(token); if (set) set.delete(res);
         if (set && set.size) return;
-        const cur = byToken.get(p.t); if (!cur || cur.p !== p || p.left) return;
+        const cur = byToken.get(token); if (!cur || cur.p !== p || p.left) return;
         p.on = false;
         if (S.phase !== 'playing') {
           p.dtimer = setTimeout(() => {
             if (!p.on && S.phase !== 'playing' && rooms.get(S.code) === S) {
+              addChat(S, '', p.name + ' left the table.', true, 'leave');
               forgetPlayer(S, p);
               if (S.players.length) push(S);
               scheduleIdle(S);
@@ -510,12 +598,14 @@ function createAppServer() {
           p.deadline = Date.now() + GRACE;
           p.dtimer = setTimeout(() => {
             if (p.on || p.left || p.bot) return;
-            p.announced = true; notify(S, p.name + ' lost connection. Waiting up to ' + Math.round(GRACE / 1000) + ' seconds for them to come back.'); push(S);
+            p.announced = true;
+            notify(S, p.name + ' lost connection. Waiting ' + Math.round(GRACE / 1000) + 's for them to come back.', 'leave');
+            push(S);
           }, DEBOUNCE);
           p.btimer = setTimeout(() => {
-            if (p.on || p.left) return;
+            if (p.on) return;
             p.bot = true; p.deadline = 0;
-            if (p.announced) notify(S, p.name + ' didn\u2019t return, so a bot is playing their cards. They can still rejoin.');
+            notify(S, p.name + ' didn\u2019t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards. They can still rejoin.', 'leave');
             push(S);
           }, GRACE);
         }
@@ -525,7 +615,7 @@ function createAppServer() {
       return push(S);
     }
     if (req.method === 'POST' && u.pathname === '/api') {
-      if (!checkRate(req, 50, 10000)) {
+      if (!checkRate(req, 60, 10000)) {
         res.writeHead(429, { ...SEC_HEADERS, 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ err: 'Too many requests. Please slow down.' }));
       }
@@ -577,4 +667,4 @@ if (require.main === module) {
   }, 15000);
 }
 
-module.exports = { botChoose, heurChoose, evalMove, cardPts, handPts, createAppServer, rooms, byToken };
+module.exports = { botChoose, heurChoose, evalMove, cardPts, handPts, createAppServer, rooms, byToken, GRACE };
