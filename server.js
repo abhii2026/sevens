@@ -84,7 +84,6 @@ function view(S, p) {
 
 function push(S) {
   clearTimeout(S.timer);
-  // Ensure S.turn is always a valid index of an active player when playing
   if (S.phase === 'playing' && S.players.length) {
     if (S.turn < 0 || S.turn >= S.players.length || !active(S.players[S.turn])) {
       advance(S);
@@ -99,7 +98,6 @@ function push(S) {
   if (S.phase !== 'playing' || !S.players.some(x => x.on)) return; // nobody connected: freeze the table
   const p = S.players[S.turn];
   if (!p) return;
-  // If any active player is within their 30s reconnect grace window and it is their turn, pause and wait!
   if (!p.on && !p.bot) return;
   const l = legal(S, p);
   if (!l.length) {
@@ -360,7 +358,6 @@ function play(S, p, id) {
 }
 
 function start(S) {
-  // Remove only disconnected lobby/spectator players; preserve any connected player
   for (const p of [...S.players]) if (!p.on) forgetPlayer(S, p);
   const n = S.players.length;
   if (n < 2) { push(S); return { err: 'At least 2 connected players are needed' }; }
@@ -405,14 +402,19 @@ function dropRoom(S) {
   for (const p of [...S.players]) forgetPlayer(S, p);
   rooms.delete(S.code);
 }
+
 function scheduleIdle(S) {
   clearTimeout(S.idle);
   if (S.players.some(x => x.on)) return;
-  if (!S.players.length || S.players.every(x => x.left || (x.spectator && !x.on))) {
-    dropRoom(S);
-    return;
+  // When all participants have left the game (or nobody has ever connected and everyone left), close the room immediately
+  if (!S.players.length || S.players.every(x => x.left || !x.joinedOnce)) {
+    if (S.players.every(x => x.left) || !S.players.length) {
+      dropRoom(S);
+      return;
+    }
   }
-  S.idle = setTimeout(() => { if (!S.players.some(x => x.on)) dropRoom(S); }, S.phase === 'playing' ? 300000 : 60000);
+  // If all connected participants dropped without clicking leave, close after GRACE (30s)
+  S.idle = setTimeout(() => { if (!S.players.some(x => x.on)) dropRoom(S); }, GRACE);
 }
 
 function join(b) {
@@ -430,7 +432,6 @@ function join(b) {
   }
   const rawName = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 14);
   const base = rawName || 'Player';
-  // Reclaim seat and hand if a disconnected player in this room matches the name (or if mid-game and only 1 active seat is disconnected and no custom name was typed):
   let ex = S.players.find(x => !x.on && x.name.toLowerCase() === base.toLowerCase());
   if (!ex && S.phase === 'playing') {
     const droppedActive = S.players.filter(x => !x.on && !x.spectator);
@@ -450,7 +451,6 @@ function join(b) {
     ex.deadline = 0;
     ex.rejoining = true;
     byToken.set(ex.t, { S, p: ex });
-    // Start a fresh join timer in case /events is never opened
     ex.dtimer = setTimeout(() => {
       if (!ex.on && rooms.get(S.code) === S && S.phase === 'playing') {
         ex.bot = true; ex.deadline = 0; push(S);
@@ -482,7 +482,6 @@ function act(b) {
   const rec = b.t ? byToken.get(String(b.t)) : null;
   if (!rec) return { err: 'Not joined' };
   const { S, p } = rec;
-  // Any authenticated action from `p` proves `p` is actively online:
   if (b.a !== 'leave' && (!p.on || p.bot)) {
     p.on = true; p.bot = false; p.left = false; p.deadline = 0;
     clearTimeout(p.dtimer); clearTimeout(p.btimer);
@@ -517,6 +516,12 @@ function act(b) {
     push(S); return { state: view(S, p) };
   }
   if (b.a === 'leave') {
+    // If no other connected human players remain in the room, drop the room immediately!
+    const othersOnline = S.players.some(x => x !== p && x.on && !x.left);
+    if (!othersOnline) {
+      dropRoom(S);
+      return {};
+    }
     if (S.phase === 'playing' && !p.spectator && !p.done) {
       p.left = true; p.bot = false; p.on = false; p.deadline = Date.now() + GRACE; p.announced = true;
       clearTimeout(p.dtimer); clearTimeout(p.btimer);
@@ -524,7 +529,7 @@ function act(b) {
       conns.delete(p.t);
       notify(S, p.name + ' left the game. Waiting ' + Math.round(GRACE / 1000) + 's before a bot plays their cards.', 'leave');
       p.btimer = setTimeout(() => {
-        if (p.on) return;
+        if (p.on || !rooms.has(S.code)) return;
         p.bot = true; p.deadline = 0;
         notify(S, p.name + ' didn\u2019t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards.', 'leave');
         push(S);
@@ -603,7 +608,7 @@ function createAppServer() {
             push(S);
           }, DEBOUNCE);
           p.btimer = setTimeout(() => {
-            if (p.on) return;
+            if (p.on || !rooms.has(S.code)) return;
             p.bot = true; p.deadline = 0;
             notify(S, p.name + ' didn\u2019t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards. They can still rejoin.', 'leave');
             push(S);
