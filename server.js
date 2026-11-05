@@ -432,13 +432,10 @@ function join(b) {
   }
   const rawName = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 14);
   const base = rawName || 'Player';
-  let ex = S.players.find(x => !x.on && x.name.toLowerCase() === base.toLowerCase());
-  if (!ex && S.phase === 'playing') {
-    const droppedActive = S.players.filter(x => !x.on && !x.spectator);
-    if (droppedActive.length === 1 && (!rawName || droppedActive[0].name.toLowerCase().startsWith(base.toLowerCase()))) {
-      ex = droppedActive[0];
-    }
-  }
+  // Only reclaim a disconnected seat on an EXACT case-insensitive name match when a name was explicitly provided:
+  const ex = rawName
+    ? S.players.find(x => !x.on && x.name.toLowerCase() === rawName.toLowerCase())
+    : null;
   if (ex) {
     clearTimeout(ex.dtimer); clearTimeout(ex.btimer);
     const oldT = ex.t;
