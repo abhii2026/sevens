@@ -3,6 +3,7 @@
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const GRACE = +process.env.GRACE_MS || 30000, DEBOUNCE = +process.env.DEBOUNCE_MS || 1500; // 30s reconnect grace window
 const JOIN_WAIT = +process.env.JOIN_WAIT_MS || 20000;
+const INVALID_WAIT = +process.env.INVALID_WAIT_MS || 5000; // 5s wait when a round is invalidated (4 Kings)
 const PORT = +process.env.PORT || 3000, MAX = 12, MAX_ROOMS = 80, H7 = 19; // card id = suit*13 + rank-1 ; 7♥ = 19
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
 const RK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'], SY = ['♠', '♥', '♦', '♣'];
@@ -23,6 +24,7 @@ const rateMap = new Map(); // ip -> { count, resetAt }
 const cardName = id => RK[id % 13 + 1] + SY[id / 13 | 0];
 const cardPts = id => (id % 13) + 1; // A=1, 2..10=2..10, J=11, Q=12, K=13
 const handPts = hand => hand.reduce((sum, id) => sum + cardPts(id), 0);
+const hasFourKings = hand => hand && hand.filter(id => id % 13 === 12).length === 4;
 const active = p => !p.spectator && !p.done;
 const hostId = S => { const h = S.players.find(p => p.on) || S.players[0]; return h ? h.id : null; };
 const normRoom = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
@@ -45,16 +47,45 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alert: null, endAlerted: false };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alert: null, endAlerted: false, invalidated: null };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
-function canPlay(S, id) {
-  if (!S.started) return id === H7;
-  const s = id / 13 | 0, r = id % 13 + 1, b = S.board[s];
+function canPlayOnBoard(board, started, id) {
+  if (!started) return id === H7;
+  const s = id / 13 | 0, r = id % 13 + 1, b = board[s];
   return b ? (r === b[0] - 1 || r === b[1] + 1) : r === 7;
 }
+function canPlay(S, id) { return canPlayOnBoard(S.board, S.started, id); }
 const legal = (S, p) => (p && p.hand ? p.hand.filter(id => canPlay(S, id)) : []);
+
+function simPlayOnBoard(board, id) {
+  const next = board.map(b => (b ? [b[0], b[1]] : null));
+  const s = id / 13 | 0, r = id % 13 + 1;
+  if (!next[s]) next[s] = [r, r];
+  else if (r < next[s][0]) next[s][0] = r;
+  else next[s][1] = r;
+  return next;
+}
+
+// Checks whether a player's last 3 cards are guaranteed to finish in their next 3 turns/rounds
+function canFinishInThree(S, hand) {
+  if (!hand || hand.length !== 3) return false;
+  const perms = [
+    [0, 1, 2], [0, 2, 1],
+    [1, 0, 2], [1, 2, 0],
+    [2, 0, 1], [2, 1, 0]
+  ];
+  for (const [i, j, k] of perms) {
+    const c1 = hand[i], c2 = hand[j], c3 = hand[k];
+    if (!canPlayOnBoard(S.board, S.started, c1)) continue;
+    const b1 = simPlayOnBoard(S.board, c1);
+    if (!canPlayOnBoard(b1, true, c2)) continue;
+    const b2 = simPlayOnBoard(b1, c2);
+    if (canPlayOnBoard(b2, true, c3)) return true;
+  }
+  return false;
+}
 
 function findWaitingPlayer(S) {
   if (S.phase !== 'playing') return null;
@@ -67,6 +98,9 @@ function view(S, p) {
   const cur = S.turn >= 0 ? S.players[S.turn] : null;
   const wp = findWaitingPlayer(S);
   const wait = wp ? { name: wp.name, left: Math.max(0, Math.ceil((wp.deadline - Date.now()) / 1000)) } : null;
+  const inv = S.phase === 'invalid' && S.invalidated
+    ? { name: S.invalidated.name, canDeal: !!S.invalidated.canDeal, left: Math.max(0, Math.ceil((S.invalidated.until - Date.now()) / 1000)) }
+    : null;
   return {
     phase: S.phase, round: S.round || 0, you: p.id, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
     players: S.players.map(q => ({
@@ -76,9 +110,9 @@ function view(S, p) {
       roundPts: q.roundPts || 0,
       leftCards: S.phase === 'over' ? (q.leftCards || []) : []
     })),
-    board: S.board, turn: cur ? cur.id : null, hand: p.hand, legal: cur === p ? legal(S, p) : [],
+    board: S.board, turn: cur ? cur.id : null, hand: p.hand, legal: S.phase === 'playing' && cur === p ? legal(S, p) : [],
     last: S.last, log: S.log.slice(-5), spec: p.spectator, place: p.place,
-    chat: S.chat.slice(-40), alert: S.alert, wait
+    chat: S.chat.slice(-40), alert: S.alert, wait, invalid: inv
   };
 }
 
@@ -94,6 +128,17 @@ function push(S) {
     for (const res of conns.get(p.t) || []) {
       try { res.write(payload); } catch (e) {}
     }
+  }
+  if (S.phase === 'invalid' && S.invalidated && !S.invalidated.canDeal) {
+    const delay = Math.max(50, S.invalidated.until - Date.now());
+    S.timer = setTimeout(() => {
+      if (S.phase === 'invalid' && S.invalidated) {
+        S.invalidated.canDeal = true;
+        addLog(S, 'Waiting complete — dealer can now start a new round');
+        push(S);
+      }
+    }, delay);
+    return;
   }
   if (S.phase !== 'playing' || !S.players.some(x => x.on)) return; // nobody connected: freeze the table
   const p = S.players[S.turn];
@@ -294,6 +339,19 @@ function recordPass(S, p) {
   for (let id = 0; id < 52; id++) if (canPlay(S, id)) p.void.add(id);
 }
 
+// Case 2: Announces in chat when a player's last 3 cards are guaranteed to finish in the next 3 rounds/turns
+function maybeLastThree(S) {
+  if (S.phase !== 'playing') return;
+  for (const p of S.players) {
+    if (!active(p) || p.hand.length !== 3 || p.lastThreeAlerted) continue;
+    if (canFinishInThree(S, p.hand)) {
+      p.lastThreeAlerted = true;
+      const msg = `⚡ Victory lap alert: The last three cards ${p.name} holds are sure to finish in the next three rounds — clutch your Kings and brace for impact!`;
+      notify(S, msg);
+    }
+  }
+}
+
 function advance(S) {
   const n = S.players.length;
   if (!n) { S.turn = -1; return; }
@@ -335,6 +393,8 @@ function afterMove(S) {
     advance(S);
     if (S.players.filter(active).every(q => !legal(S, q).length)) {
       finishRound(S, null);
+    } else {
+      maybeLastThree(S);
     }
   }
   push(S);
@@ -361,20 +421,43 @@ function start(S) {
   for (const p of [...S.players]) if (!p.on) forgetPlayer(S, p);
   const n = S.players.length;
   if (n < 2) { push(S); return { err: 'At least 2 connected players are needed' }; }
-  const deck = [...Array(52).keys()];
-  for (let i = 51; i > 0; i--) { const j = crypto.randomInt(i + 1); [deck[i], deck[j]] = [deck[j], deck[i]]; }
-  S.round = (S.round || 0) + 1;
+  let deck;
+  if (Array.isArray(S.forceDeck) && S.forceDeck.length === 52) {
+    deck = S.forceDeck.slice();
+    S.forceDeck = null;
+  } else {
+    deck = [...Array(52).keys()];
+    for (let i = 51; i > 0; i--) { const j = crypto.randomInt(i + 1); [deck[i], deck[j]] = [deck[j], deck[i]]; }
+  }
   S.players.forEach(p => {
     p.hand = []; p.done = false; p.place = 0; p.spectator = false;
     p.bot = false; p.left = false; p.deadline = 0; p.void = new Set();
     p.score = p.score || 0; p.roundPts = 0; p.leftCards = [];
+    p.lastThreeAlerted = false;
   });
   deck.forEach((c, i) => S.players[i % n].hand.push(c));
   S.players.forEach(p => p.hand.sort((a, b) => a - b));
   S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.log = [];
-  S.alert = null; S.endAlerted = false;
+  S.alert = null; S.endAlerted = false; S.invalidated = null;
+
+  // Case 1: Check if any player was assigned all 4 Kings (4 K's)
+  const fourKHolder = S.players.find(p => hasFourKings(p.hand));
+  if (fourKHolder) {
+    const waitMs = S.invalidWaitMs != null ? S.invalidWaitMs : INVALID_WAIT;
+    S.phase = 'invalid';
+    S.turn = -1;
+    S.invalidated = { name: fourKHolder.name, canDeal: false, until: Date.now() + waitMs };
+    const msg = `👑 Royal overload! ${fourKHolder.name} was dealt all 4 Kings — round invalidated! Waiting 5s for the dealer to start a new round.`;
+    addLog(S, msg);
+    notify(S, msg, 'leave');
+    push(S);
+    return {};
+  }
+
+  S.round = (S.round || 0) + 1;
   S.turn = S.players.findIndex(p => p.hand.includes(H7)); S.phase = 'playing';
   addLog(S, 'Round ' + S.round + ' dealt to ' + n + ' players. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
+  maybeLastThree(S);
   push(S); return {};
 }
 
@@ -406,14 +489,12 @@ function dropRoom(S) {
 function scheduleIdle(S) {
   clearTimeout(S.idle);
   if (S.players.some(x => x.on)) return;
-  // When all participants have left the game (or nobody has ever connected and everyone left), close the room immediately
   if (!S.players.length || S.players.every(x => x.left || !x.joinedOnce)) {
     if (S.players.every(x => x.left) || !S.players.length) {
       dropRoom(S);
       return;
     }
   }
-  // If all connected participants dropped without clicking leave, close after GRACE (30s)
   S.idle = setTimeout(() => { if (!S.players.some(x => x.on)) dropRoom(S); }, GRACE);
 }
 
@@ -432,10 +513,28 @@ function join(b) {
   }
   const rawName = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 14);
   const base = rawName || 'Player';
-  // Only reclaim a disconnected seat on an EXACT case-insensitive name match when a name was explicitly provided:
-  const ex = rawName
-    ? S.players.find(x => !x.on && x.name.toLowerCase() === rawName.toLowerCase())
-    : null;
+  const root = base.replace(/\s+\d+$/, '').trim() || 'Player';
+  const baseKey = root.toLowerCase();
+  const cid = String(b.cid || '').trim().slice(0, 40);
+
+  let ex = null;
+  if (S.phase === 'lobby') {
+    if (cid) {
+      ex = S.players.find(x => !x.on && x.cid === cid && x.name.toLowerCase() === base.toLowerCase()) || null;
+    }
+  } else {
+    if (cid) {
+      ex = S.players.find(x => !x.on && x.cid === cid && (!rawName || x.name.toLowerCase() === rawName.toLowerCase() || x.baseName === baseKey)) || null;
+    }
+    if (!ex && rawName) {
+      ex = S.players.find(x => !x.on && x.name.toLowerCase() === rawName.toLowerCase()) || null;
+    }
+    if (!ex && rawName && S.players.some(x => x.on && x.name.toLowerCase() === rawName.toLowerCase())) {
+      const sameBaseOffline = S.players.filter(x => !x.on && x.baseName === rawName.toLowerCase());
+      if (sameBaseOffline.length === 1) ex = sameBaseOffline[0];
+    }
+  }
+
   if (ex) {
     clearTimeout(ex.dtimer); clearTimeout(ex.btimer);
     const oldT = ex.t;
@@ -443,6 +542,7 @@ function join(b) {
     for (const r of conns.get(oldT) || []) try { r.end(); } catch (e) {}
     conns.delete(oldT);
     ex.t = crypto.randomBytes(16).toString('hex');
+    if (cid) ex.cid = cid;
     ex.left = false;
     ex.bot = false;
     ex.deadline = 0;
@@ -457,8 +557,9 @@ function join(b) {
   }
   if (S.players.length >= MAX) return { err: 'The table is full (' + MAX + ' players)' };
   let nm = base, k = 2;
-  while (S.players.some(x => x.name.toLowerCase() === nm.toLowerCase())) nm = (base.slice(0, 11).trim() + ' ' + k++);
-  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing', joinedOnce: false };
+  const rootPrefix = root.slice(0, 11).trim();
+  while (S.players.some(x => x.name.toLowerCase() === nm.toLowerCase())) nm = rootPrefix + ' ' + k++;
+  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), cid, baseName: baseKey, name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing', joinedOnce: false };
   S.players.push(p);
   byToken.set(p.t, { S, p });
   p.dtimer = setTimeout(() => {
@@ -486,6 +587,9 @@ function act(b) {
   if (b.a === 'start') {
     if (p.id !== hostId(S)) return { err: 'Only the host can deal', state: view(S, p) };
     if (S.phase === 'playing') return { err: 'A round is in progress', state: view(S, p) };
+    if (S.phase === 'invalid' && S.invalidated && !S.invalidated.canDeal) {
+      return { err: 'Please wait 5 seconds before starting a new round', state: view(S, p) };
+    }
     const r = start(S);
     return { ...r, state: view(S, p) };
   }
@@ -513,7 +617,6 @@ function act(b) {
     push(S); return { state: view(S, p) };
   }
   if (b.a === 'leave') {
-    // If no other connected human players remain in the room, drop the room immediately!
     const othersOnline = S.players.some(x => x !== p && x.on && !x.left);
     if (!othersOnline) {
       dropRoom(S);
@@ -669,4 +772,4 @@ if (require.main === module) {
   }, 15000);
 }
 
-module.exports = { botChoose, heurChoose, evalMove, cardPts, handPts, createAppServer, rooms, byToken, GRACE };
+module.exports = { botChoose, heurChoose, evalMove, cardPts, handPts, hasFourKings, canFinishInThree, createAppServer, rooms, byToken, GRACE, INVALID_WAIT };

@@ -823,10 +823,18 @@ function card(id,cls='',interactive=false){
 }
 
 const roomFromUrl=()=>new URLSearchParams(location.search).get('r')||'';
-let T='',G=null,lastSig='',es=null,wasMyTurn=false,wasPhase='',chatOpen=innerWidth>=1100,firstMsg=true,waitUntil=0,wl=null,seenChat=0,lastAlert=0,rafId=0,practiceMode=false,practiceTimer=null;
-try{T=sessionStorage.getItem('sevensT')||(!roomFromUrl()?localStorage.getItem('sevensT'):'')||''}catch(e){}
+let T='',CID='',G=null,lastSig='',es=null,wasMyTurn=false,wasPhase='',chatOpen=innerWidth>=1100,firstMsg=true,waitUntil=0,wl=null,seenChat=0,lastAlert=0,rafId=0,practiceMode=false,practiceTimer=null;
+try{
+  T=sessionStorage.getItem('sevensT')||(!roomFromUrl()?localStorage.getItem('sevensT'):'')||'';
+  CID=sessionStorage.getItem('sevensCid')||'';
+  if(!CID){
+    CID=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');
+    sessionStorage.setItem('sevensCid',CID);
+  }
+}catch(e){}
 const app=document.getElementById('app');
-const stateSig=g=>g?JSON.stringify([g.phase,g.round,g.you,g.host,g.room,g.turn,g.last,g.spec,g.place,g.wait?g.wait.name:'',g.board,g.hand,g.legal,g.log,g.players]):'';
+let invUntil=0;
+const stateSig=g=>g?JSON.stringify([g.phase,g.round,g.you,g.host,g.room,g.turn,g.last,g.spec,g.place,g.wait?g.wait.name:'',g.invalid,g.board,g.hand,g.legal,g.log,g.players]):'';
 
 function copyText(txt){
   if(navigator.clipboard&&navigator.clipboard.writeText){
@@ -861,12 +869,31 @@ function pEvalBotMove(id,hand){
   return sc;
 }
 
-const P_STATE={round:0,hands:[],board:[null,null,null,null],turn:0,started:false,places:0,last:-1,log:[],chat:[],chatSeq:0,players:[]};
-function pCanPlay(id){
-  if(!P_STATE.started)return id===19;
-  const s=id/13|0,r=id%13+1,b=P_STATE.board[s];
+const P_STATE={round:0,hands:[],board:[null,null,null,null],turn:0,started:false,places:0,last:-1,log:[],chat:[],chatSeq:0,players:[],invalid:null,alerted3:{}};
+function pCanPlayOn(board,started,id){
+  if(!started)return id===19;
+  const s=id/13|0,r=id%13+1,b=board[s];
   return b?(r===b[0]-1||r===b[1]+1):r===7;
 }
+function pSimBoard(board,id){
+  const next=board.map(b=>b?[b[0],b[1]]:null),s=id/13|0,r=id%13+1;
+  if(!next[s])next[s]=[r,r];else if(r<next[s][0])next[s][0]=r;else next[s][1]=r;
+  return next;
+}
+function pCanFinishInThree(board,started,hand){
+  if(!hand||hand.length!==3)return false;
+  const perms=[[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
+  for(const [i,j,k] of perms){
+    const c1=hand[i],c2=hand[j],c3=hand[k];
+    if(!pCanPlayOn(board,started,c1))continue;
+    const b1=pSimBoard(board,c1);
+    if(!pCanPlayOn(b1,true,c2))continue;
+    const b2=pSimBoard(b1,c2);
+    if(pCanPlayOn(b2,true,c3))return true;
+  }
+  return false;
+}
+function pCanPlay(id){return pCanPlayOn(P_STATE.board,P_STATE.started,id)}
 function pLegal(idx){return P_STATE.hands[idx].filter(pCanPlay)}
 function startPractice(playerName){
   const isNew=!practiceMode||!P_STATE.players.length;
@@ -960,6 +987,14 @@ function pPlay(idx,id){
     syncPracticeView();
     return;
   }
+  P_STATE.players.forEach((pl,pi)=>{
+    if(P_STATE.hands[pi].length===3&&!P_STATE.alerted3[pl.id]&&pCanFinishInThree(P_STATE.board,P_STATE.started,P_STATE.hands[pi])){
+      P_STATE.alerted3[pl.id]=true;
+      const msg=`⚡ Victory lap alert: The last three cards ${pl.name} holds are sure to finish in the next three rounds — clutch your Kings and brace for impact!`;
+      P_STATE.chat.push({id:++P_STATE.chatSeq,name:'',text:msg,sys:true,kind:''});
+      toast(msg);
+    }
+  });
   pAdvance();syncPracticeView();
 }
 
@@ -967,6 +1002,7 @@ function applyIncomingState(nextG){
   const prevLast=G?G.last:-1;
   G=nextG;
   waitUntil=G.wait?Date.now()+G.wait.left*1000:0;
+  invUntil=G.invalid&&!G.invalid.canDeal?Date.now()+G.invalid.left*1000:0;
   const want=roomFromUrl();
   if(want && G.room!==want){if(es)es.close();T='';setStore('sevensT',null);G=null;lastSig='';render();return}
   if(G.room&&!want)history.replaceState(null,'','?r='+G.room);
@@ -1026,7 +1062,7 @@ function connect(){
       const rCode=roomFromUrl(),savedN=getStore('sevensN');
       T='';setStore('sevensT',null);G=null;lastSig='';
       if(rCode&&savedN){
-        api({a:'join',name:savedN,room:rCode}).then(r=>{
+        api({a:'join',name:savedN,room:rCode,cid:CID}).then(r=>{
           if(r&&r.t){T=r.t;setStore('sevensT',T);if(r.name)setStore('sevensN',r.name);connect();}
           else render();
         });
@@ -1040,7 +1076,7 @@ async function join(){
   const n=nmEl?nmEl.value.trim():'';if(n)setStore('sevensN',n);
   const room=((document.getElementById('rm')||{}).value||roomFromUrl()).trim();
   T='';
-  const r=await api({a:'join',name:n,room});
+  const r=await api({a:'join',name:n,room,cid:CID});
   if(r.err==='offline'){
     toast('Offline mode — starting practice table');
     startPractice(n);
@@ -1613,6 +1649,26 @@ function miniCardBadge(id,idx=0){
   return `<span class="mini-card ${isRed(s)?'red':''}" style="animation-delay:${idx*45}ms">${RK[r]}${SYM[s]}<small>(${r})</small></span>`;
 }
 
+function buildInvalidModal(){
+  const inv=G.invalid||{name:'A player',canDeal:true,left:0};
+  const leftSec=Math.max(0,Math.ceil((invUntil-Date.now())/1000))||inv.left||0;
+  const waiting=!inv.canDeal&&leftSec>0;
+  const kings=[12,25,38,51].map((id,i)=>miniCardBadge(id,i)).join(' ');
+  return `<div class="panel">
+    <p style="font-size:11.5px;color:var(--rose);margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Round Invalidated · 4 Kings Dealt</p>
+    <h2 style="font-size:21px;margin-bottom:8px">Royal Overload for ${esc(inv.name)}!</h2>
+    <p style="color:var(--muted);font-size:13.5px;margin:0 0 12px">${esc(inv.name)} was assigned all four Kings. This deal is invalidated and no points are counted.</p>
+    <div style="display:flex;justify-content:center;gap:6px;margin:10px 0 16px">${kings}</div>
+    <p id="invStatus" style="color:${waiting?'var(--accent)':'var(--neon-green)'};font-size:13.5px;font-weight:600;margin:0 0 14px">
+      ${waiting?`Waiting ${leftSec}s before redealing…`:(G.host===G.you?'Dealer, please start a new round.':'Waiting for the dealer to start a new round…')}
+    </p>
+    <div class="lobby-actions">
+      ${G.host===G.you?`<button id="invDealBtn" class="btn" data-a="start" type="button" ${waiting?'disabled':''}>Start New Round</button>`:''}
+      <button class="btn-ghost" data-leave="1" type="button">Leave</button>
+    </div>
+  </div>`;
+}
+
 function buildRoundOverModal(){
   const seated=G.players.filter(p=>!p.spec);
   if(!seated.length)return '';
@@ -1736,7 +1792,7 @@ function table(){
   </div>`;
 
   renderTopbarState();paintChat();
-  showOver(G.phase==='over'?buildRoundOverModal():'');
+  showOver(G.phase==='over'?buildRoundOverModal():G.phase==='invalid'?buildInvalidModal():'');
   layout(wide);
 }
 
@@ -1773,7 +1829,15 @@ function fit(){
   });
 }
 
-setInterval(()=>{const b=document.getElementById('bt');if(b&&G&&G.wait)b.textContent='Waiting for '+G.wait.name+' to reconnect… '+mmss()},500);
+setInterval(()=>{
+  const b=document.getElementById('bt');
+  if(b&&G&&G.wait)b.textContent='Waiting for '+G.wait.name+' to reconnect… '+mmss();
+  const invEl=document.getElementById('invStatus');
+  if(invEl&&G&&G.phase==='invalid'&&G.invalid&&!G.invalid.canDeal){
+    const sLeft=Math.max(0,Math.ceil((invUntil-Date.now())/1000));
+    if(sLeft>0)invEl.textContent=`Waiting ${sLeft}s before redealing…`;
+  }
+},500);
 async function keepAwake(){try{if(G&&G.phase==='playing'&&'wakeLock' in navigator&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}catch(e){}}
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
