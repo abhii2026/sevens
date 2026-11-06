@@ -677,6 +677,211 @@ ul.pl-list li{
 .sc-share-bar button{width:100%;padding:9px 12px;font-size:13px}
 .sc-share-bar svg{width:15px;height:15px;fill:currentColor}
 
+/* ================= LANDING PAGE ================= */
+#app.landing-mode{max-width:none;padding:0;align-items:stretch;justify-content:stretch}
+.landing{
+  position:relative;width:100%;height:100%;
+  overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  --gold-1:#ffe7a8;--gold-2:#f0b552;--gold-3:#c9801c;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+}
+/* ambient background */
+.lp-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+  background:
+    radial-gradient(1100px 680px at 50% -12%,rgba(46,125,92,.55) 0%,transparent 62%),
+    radial-gradient(760px 520px at 102% 104%,rgba(224,159,62,.16) 0%,transparent 60%),
+    radial-gradient(640px 480px at -6% 96%,rgba(200,62,59,.12) 0%,transparent 60%),
+    linear-gradient(180deg,#0f1c17 0%,#09110e 100%);
+}
+.lp-bg::before{ /* felt grain */
+  content:"";position:absolute;inset:0;opacity:.22;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+.lp-bg::after{ /* vignette */
+  content:"";position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 45%,transparent 45%,rgba(0,0,0,.55) 100%);
+}
+.lp-glyph{position:absolute;fill:#fff;opacity:.035;animation:glyphDrift 22s ease-in-out infinite}
+.lp-glyph.r{fill:#ff6b66;opacity:.05}
+.lp-glyph.g1{width:180px;height:180px;left:-40px;top:12%;animation-delay:-3s}
+.lp-glyph.g2{width:110px;height:110px;right:6%;top:6%;animation-delay:-9s}
+.lp-glyph.g3{width:220px;height:220px;right:-60px;bottom:-30px;animation-delay:-14s}
+.lp-glyph.g4{width:90px;height:90px;left:14%;bottom:8%;animation-delay:-6s}
+@keyframes glyphDrift{0%,100%{transform:translate(0,0) rotate(-8deg)}50%{transform:translate(14px,-22px) rotate(8deg)}}
+
+.lp-inner{
+  position:relative;z-index:1;
+  min-height:100%;max-width:1160px;margin:0 auto;
+  padding:clamp(18px,4vh,48px) 16px;
+  display:grid;align-items:center;align-content:center;justify-items:center;
+  grid-template-columns:minmax(0,1fr);gap:clamp(14px,3vh,28px);
+}
+.lp-hero,.lp-panel{min-width:0}
+@media(min-width:900px){
+  .lp-inner{grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:clamp(28px,5vw,72px);padding:32px 40px}
+}
+
+/* hero column */
+.lp-hero{display:flex;flex-direction:column;align-items:center;text-align:center;width:100%;max-width:560px}
+.lp-eyebrow{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:6px 13px 6px 10px;border-radius:999px;
+  font:600 11.5px/1 'Inter',system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;
+  color:#d9e6df;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);
+  backdrop-filter:blur(6px);
+  animation:lpUp .7s var(--ease) both .05s;
+}
+.lp-eyebrow b{color:var(--gold-1);font-weight:700;letter-spacing:.1em}
+.lp-live{width:7px;height:7px;border-radius:50%;background:var(--neon-green);box-shadow:0 0 0 0 rgba(74,222,128,.6);animation:livePulse 2s infinite}
+@keyframes livePulse{70%{box-shadow:0 0 0 8px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+
+/* signature: fanned sevens */
+.fan{
+  --fw:clamp(62px,9.4vw,112px);
+  position:relative;width:calc(var(--fw)*3);height:calc(var(--fw)*1.72);
+  margin:clamp(14px,3.2vh,30px) auto clamp(4px,1.4vh,12px);
+  animation:fanFloat 7s ease-in-out infinite;
+}
+.fan::before{
+  content:"";position:absolute;left:50%;top:55%;width:150%;height:120%;
+  transform:translate(-50%,-50%);
+  background:radial-gradient(closest-side,rgba(240,181,82,.28),rgba(240,181,82,.08) 55%,transparent 75%);
+  filter:blur(8px);
+}
+.fan-slot{
+  position:absolute;left:50%;bottom:0;width:var(--fw);margin-left:calc(var(--fw) / -2);
+  transform-origin:50% 135%;
+  rotate:calc((var(--i) - 1.5) * 13deg);
+  translate:0 calc(var(--d) * 1px);
+  transition:rotate .55s var(--ease),translate .55s var(--ease);
+  animation:dealIn .9s var(--ease) both;animation-delay:calc(.2s + var(--i) * .1s);
+}
+.fan-slot:nth-child(1){--d:10}.fan-slot:nth-child(2){--d:0}.fan-slot:nth-child(3){--d:0}.fan-slot:nth-child(4){--d:10}
+.fan:hover .fan-slot{rotate:calc((var(--i) - 1.5) * 19deg);translate:0 calc(var(--d) * 1px - 6px)}
+.fan .card{--w:var(--fw)}
+.fan .face{box-shadow:0 14px 30px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.35);border-color:#e9e3d4}
+.fan-slot.hero .face{
+  box-shadow:0 0 0 1.5px rgba(255,214,130,.95),0 0 34px rgba(240,181,82,.45),0 18px 36px rgba(0,0,0,.55);
+}
+.fan-slot.hero .face::after{ /* glossy sheen */
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.55) 45%,transparent 60%);
+  transform:translateX(-120%);animation:sheen 5.5s ease-in-out infinite 1.6s;
+}
+@keyframes sheen{0%,70%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+@keyframes dealIn{from{opacity:0;transform:translate(0,60px) scale(.85)}}
+@keyframes fanFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+
+.lp-word{
+  margin:0;
+  font:700 clamp(54px,11vw,116px)/.92 var(--serif);
+  letter-spacing:-.035em;
+  background:linear-gradient(176deg,#fff8e4 0%,var(--gold-1) 30%,var(--gold-2) 62%,var(--gold-3) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 6px 22px rgba(240,181,82,.22));
+  animation:lpUp .8s var(--ease) both .15s;
+}
+.lp-tag{
+  margin:clamp(8px,1.6vh,14px) 0 0;max-width:440px;
+  color:#b5c7bf;font-size:clamp(14px,1.6vw,16.5px);line-height:1.55;
+  animation:lpUp .8s var(--ease) both .25s;
+}
+.lp-tag em{font-style:normal;color:var(--text);font-weight:600}
+
+.lp-feats{
+  list-style:none;margin:clamp(14px,3vh,28px) 0 0;padding:0;
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%;
+  animation:lpUp .8s var(--ease) both .35s;
+}
+.lp-feats li{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  padding:12px 8px;border-radius:14px;
+  background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);
+}
+.lp-feats svg{width:20px;height:20px;fill:var(--gold-2)}
+.lp-feats b{font-size:13px;font-weight:650;color:var(--text);line-height:1.2}
+.lp-feats span{font-size:11.5px;color:var(--muted);line-height:1.3}
+
+/* form card */
+.lp-panel{
+  position:relative;width:100%;max-width:420px;
+  padding:clamp(20px,3.4vh,30px) clamp(18px,3vw,28px);
+  border-radius:24px;
+  background:
+    linear-gradient(180deg,rgba(30,48,41,.86),rgba(16,27,23,.9)) padding-box,
+    linear-gradient(160deg,rgba(255,220,150,.55),rgba(255,255,255,.08) 38%,rgba(255,255,255,.04) 70%,rgba(240,181,82,.3)) border-box;
+  border:1px solid transparent;
+  box-shadow:0 30px 70px rgba(0,0,0,.55),0 10px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  text-align:left;
+  animation:lpUp .9s var(--ease) both .3s;
+}
+.lp-panel h2{font:700 clamp(22px,2.6vw,26px)/1.15 var(--serif);letter-spacing:-.01em;color:var(--text)}
+.lp-panel-sub{margin:6px 0 clamp(14px,2.6vh,22px);color:var(--muted);font-size:13.5px}
+.lp-panel-sub b{color:var(--gold-1);font-weight:700;letter-spacing:.06em}
+.lp-field{display:block;margin-bottom:clamp(10px,2vh,16px)}
+.lp-label{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#a9bcb3;margin:0 0 6px;letter-spacing:.02em}
+.lp-opt{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:rgba(255,255,255,.05);padding:3px 7px;border-radius:999px}
+.lp-input{position:relative;display:block}
+.lp-input svg{position:absolute;left:14px;top:50%;width:18px;height:18px;transform:translateY(-50%);fill:#6f857b;pointer-events:none;transition:fill .2s}
+.lp-input input{
+  height:50px;padding:0 14px 0 44px;border-radius:14px;
+  background:rgba(6,12,10,.55);border:1px solid rgba(255,255,255,.1);
+  transition:border-color .2s,box-shadow .2s,background .2s;
+}
+.lp-input input:hover{border-color:rgba(255,255,255,.18)}
+.lp-input input:focus{border-color:var(--gold-2);background:rgba(6,12,10,.75);box-shadow:0 0 0 4px rgba(240,181,82,.16)}
+.lp-input:focus-within svg{fill:var(--gold-2)}
+.lp-input input#rm{
+  font:600 16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.32em;text-transform:uppercase;
+}
+.lp-input input#rm::placeholder{letter-spacing:normal;text-transform:none;font-family:'Inter',system-ui,sans-serif;font-weight:400}
+
+.lp-cta{
+  position:relative;overflow:hidden;width:100%;height:52px;margin-top:4px;
+  border-radius:14px;font-size:15.5px;font-weight:700;letter-spacing:.01em;
+  background:linear-gradient(180deg,#ffd27a 0%,#f0b552 45%,#d98f26 100%);
+  color:#241703;
+  box-shadow:0 12px 26px rgba(224,159,62,.34),0 2px 0 rgba(255,255,255,.35) inset,0 -2px 0 rgba(0,0,0,.12) inset;
+}
+.lp-cta svg{width:18px;height:18px;fill:currentColor;transition:transform .25s var(--ease)}
+.lp-cta:hover:not([disabled]){filter:brightness(1.05);box-shadow:0 16px 34px rgba(224,159,62,.45),0 2px 0 rgba(255,255,255,.35) inset}
+.lp-cta:hover svg{transform:translateX(4px)}
+.lp-cta::after{
+  content:"";position:absolute;top:0;bottom:0;left:-60%;width:40%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
+  transform:skewX(-18deg);transition:left .7s var(--ease);
+}
+.lp-cta:hover::after{left:130%}
+.lp-or{display:flex;align-items:center;gap:12px;margin:clamp(10px,2vh,16px) 0;color:#6f857b;font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
+.lp-or::before,.lp-or::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent)}
+.lp-solo{width:100%;height:48px;border-radius:14px;font-size:14.5px;font-weight:600;background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.14)}
+.lp-solo svg{width:18px;height:18px;fill:var(--gold-2)}
+.lp-solo:hover:not([disabled]){background:rgba(255,255,255,.08);border-color:rgba(240,181,82,.5)}
+.lp-panel .rules-link{display:flex;margin:clamp(10px,2vh,16px) auto 0}
+
+@keyframes lpUp{from{opacity:0;transform:translateY(16px)}}
+
+/* compact screens */
+@media(max-width:899px){
+  .lp-feats{max-width:440px}
+}
+@media(max-width:899px) and (max-height:820px){
+  .lp-feats{display:none}
+}
+@media(max-width:899px) and (max-height:700px){
+  .fan{--fw:52px;margin-top:10px}
+  .lp-word{font-size:50px}
+  .lp-tag{font-size:13.5px}
+}
+@media(max-width:380px){
+  .lp-feats{grid-template-columns:1fr}
+  .lp-word{font-size:52px}
+}
+
 @media(max-height:700px){
   .pl{padding:3px 7px}
   .pl-name{font-size:12px}.pl-meta{font-size:11px}
@@ -1427,7 +1632,7 @@ document.getElementById('chatForm').addEventListener('submit',e=>{
 // Dynamically update the login button text as the user types or clears the room code
 document.addEventListener('input',e=>{
   if(e.target&&e.target.id==='rm'){
-    const goBtn=document.getElementById('go');
+    const goBtn=document.getElementById('goLbl')||document.getElementById('go');
     if(goBtn)goBtn.textContent=e.target.value.trim()?'Join Table':'Open Table';
   }
 });
@@ -1533,6 +1738,51 @@ function rulesTrigger(){
   </button>`;
 }
 
+function landingHTML(pre){
+  const fan=[6,32,45,19].map((id,i)=>`<div class="fan-slot${id===19?' hero':''}" style="--i:${i}">${card(id)}</div>`).join('');
+  const glyph=(s,c)=>`<svg class="lp-glyph ${c}${isRed(s)?' r':''}" viewBox="0 0 100 100"><use href="#s${s}"/></svg>`;
+  return `<div class="landing">
+    <div class="lp-bg" aria-hidden="true">${glyph(0,'g1')}${glyph(1,'g2')}${glyph(3,'g3')}${glyph(2,'g4')}</div>
+    <main class="lp-inner">
+      <section class="lp-hero">
+        <span class="lp-eyebrow">${pre
+          ?`<span class="lp-live"></span>You're invited · <b>#${pre}</b>`
+          :`<span class="lp-live"></span>Live multiplayer card table`}</span>
+        <div class="fan" aria-hidden="true">${fan}</div>
+        <h1 class="lp-word">Sevens</h1>
+        <p class="lp-tag">Open with the <em>7♥</em>, build every suit up and down, and race to empty your hand. <em>Lowest score wins.</em></p>
+        <ul class="lp-feats">
+          <li><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg><b>2–12 players</b><span>One table, everyone in</span></li>
+          <li><svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg><b>No sign-up</b><span>Share a link to invite</span></li>
+          <li><svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg><b>Never stalls</b><span>Bots cover dropouts</span></li>
+        </ul>
+      </section>
+      <section class="lp-panel" aria-labelledby="lpTitle">
+        <h2 id="lpTitle">${pre?'Join the table':'Take a seat'}</h2>
+        <p class="lp-panel-sub">${pre?`Your friends are waiting at table <b>#${pre}</b>.`:'Pick a name, then open a new table or join one with a code.'}</p>
+        <div class="lp-field">
+          <label class="lp-label" for="nm">Your name</label>
+          <span class="lp-input">
+            <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+            <input id="nm" maxlength="14" placeholder="e.g. Maya" autocomplete="nickname" value="${esc(getStore('sevensN'))}">
+          </span>
+        </div>
+        <div class="lp-field">
+          <label class="lp-label" for="rm"><span>Room code</span><span class="lp-opt">Optional</span></label>
+          <span class="lp-input">
+            <svg viewBox="0 0 24 24"><path d="M20 10V8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4zm-6 4h-4v-4h4v4z"/></svg>
+            <input id="rm" maxlength="6" placeholder="Leave blank for a new table" autocapitalize="characters" autocomplete="off" spellcheck="false" value="${pre}">
+          </span>
+        </div>
+        <button id="go" class="btn lp-cta" type="button"><span id="goLbl">${pre?'Join Table':'Open Table'}</span><svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button>
+        <div class="lp-or"><span>or</span></div>
+        <button id="soloBtn" class="btn-ghost lp-solo" type="button"><svg viewBox="0 0 24 24"><path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5zM16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z"/></svg>Practice vs Bots</button>
+        ${rulesTrigger()}
+      </section>
+    </main>
+  </div>`;
+}
+
 function topbarHTML(){
   const unread=(G.chat||[]).filter(m=>m.id>seenChat).length;
   return `<header class="topbar">
@@ -1567,25 +1817,8 @@ function render(){
     paintChat();return;
   }
   if(!G){
-    app.className='';showOver('');
-    const pre=esc(roomFromUrl());
-    app.innerHTML=`<div class="center">
-      ${logo}
-      <p class="sub">Multiplayer card table with cumulative point scoring.</p>
-      <div class="panel">
-        <div class="field">
-          <label for="nm">Name</label>
-          <input id="nm" maxlength="14" placeholder="Your name" autocomplete="nickname" value="${esc(getStore('sevensN'))}">
-        </div>
-        <div class="field">
-          <label for="rm">Room Code <span style="opacity:.6">(optional)</span></label>
-          <input id="rm" maxlength="6" placeholder="Leave blank for a new room" autocapitalize="characters" spellcheck="false" value="${pre}">
-        </div>
-        <button id="go" class="btn" type="button" style="width:100%;margin-top:2px">${pre?'Join Table':'Open Table'}</button>
-        <button id="soloBtn" class="btn-ghost" type="button" style="width:100%;margin-top:8px">Practice vs Bots</button>
-        ${rulesTrigger()}
-      </div>
-    </div>`;
+    app.className='landing-mode';showOver('');
+    app.innerHTML=landingHTML(esc(roomFromUrl()));
     paintChat();return;
   }
   if(G.phase==='lobby')return lobby();
