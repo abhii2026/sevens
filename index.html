@@ -599,7 +599,7 @@ ul.pl-list li{
   border-radius:14px;border:1px dashed rgba(240,181,82,.35);background:rgba(240,181,82,.05);color:#d8c597;font-size:14px;
 }
 .sc-wait b{color:var(--gold-1);margin:0 .25em}
-.sc-tools{display:flex;gap:8px;margin-top:8px}
+.sc-tools{display:flex;gap:8px;margin-top:10px}
 .sc-tool{
   flex:1;height:40px;padding:0 8px;border-radius:12px;font-size:13px;font-weight:600;color:#cfdcd5;
   background:rgba(255,255,255,.03);border-color:rgba(255,255,255,.1);
@@ -822,10 +822,10 @@ ul.pl-list li{
   border-radius:14px;font-size:15.5px;font-weight:700;letter-spacing:.01em;
   background:linear-gradient(180deg,#ffd27a 0%,#f0b552 45%,#d98f26 100%);
   color:#241703;
-  box-shadow:0 12px 26px rgba(224,159,62,.34),0 2px 0 rgba(255,255,255,.35) inset,0 -2px 0 rgba(0,0,0,.12) inset;
+  box-shadow:0 6px 14px -6px rgba(224,159,62,.6),0 2px 0 rgba(255,255,255,.35) inset,0 -2px 0 rgba(0,0,0,.12) inset;
 }
 .lp-cta svg{width:18px;height:18px;fill:currentColor;transition:transform .25s var(--ease)}
-.lp-cta:hover:not([disabled]){filter:brightness(1.05);box-shadow:0 16px 34px rgba(224,159,62,.45),0 2px 0 rgba(255,255,255,.35) inset}
+.lp-cta:hover:not([disabled]){filter:brightness(1.07) saturate(1.05);box-shadow:0 5px 12px -6px rgba(240,181,82,.75),0 2px 0 rgba(255,255,255,.4) inset,0 -2px 0 rgba(0,0,0,.12) inset}
 .lp-cta:hover svg{transform:translateX(4px)}
 .lp-cta::after{
   content:"";position:absolute;top:0;bottom:0;left:-60%;width:40%;
@@ -1736,139 +1736,139 @@ function drawCrown(ctx,cx,cy,size){
 }
 function cvHue(name){let h=7;for(const c of String(name).toLowerCase())h=(h*31+c.charCodeAt(0))%360;return h}
 
-// Shareable results image: full-bleed felt, podium for the top three, compact rows for the rest.
-// Height follows the player count so there is no dead space on a phone screen.
+// Shareable results poster. Mirrors the in-game scorecard: warm stage light on the champion,
+// then one standings panel. Text never goes below 22px so it stays legible when a phone shows
+// the 1080px image at ~1/3 scale. Height runs from square (few players) to ~3:4 (many).
 function generateScorecardCanvas(){
   const seated=(G?G.players:[]).filter(p=>!p.spec);
   const byTotal=[...seated].sort((a,b)=>(a.score||0)-(b.score||0)||(a.place||99)-(b.place||99));
   if(!byTotal.length)byTotal.push({id:0,name:'Player',score:0,roundPts:0,leftCards:[]});
-  const podN=Math.min(3,byTotal.length);
-  const rest=byTotal.slice(podN,podN+7);
-  const W=1080,PAD=64,HEAD=148,POD=600,RH=96,RG=12,FOOT=92;
-  const restH=rest.length?24+rest.length*(RH+RG):0;
-  const H=HEAD+POD+restH+FOOT;
+  const winner=byTotal[0],loser=byTotal[byTotal.length-1];
+  const shown=byTotal.length>8?[...byTotal.slice(0,7),loser]:byTotal.slice(),more=byTotal.length-shown.length,n=shown.length;
+  const showTrail=byTotal.length>1&&(loser.score||0)>(winner.score||0);
+  const rowH=n<=3?128:n<=5?112:104,big=rowH>=110;
+  const W=1080,PAD=72,HEAD=150,HERO=440,FOOT=118;
+  const panelH=n*rowH+(more?52:0)+28;
+  const need=HEAD+HERO+48+panelH+FOOT;
+  const H=Math.max(1080,need),slack=H-need;
   const cv=document.createElement('canvas');cv.width=W;cv.height=H;
   const ctx=cv.getContext('2d');
-  const RANK=[
-    {c:'#f0b552',hi:'#ffe7a8',fill0:'rgba(240,181,82,0.34)',fill1:'rgba(240,181,82,0.05)',bh:236},
-    {c:'#c9d2d6',hi:'#f1f4f5',fill0:'rgba(214,224,228,0.24)',fill1:'rgba(214,224,228,0.03)',bh:172},
-    {c:'#d08d58',hi:'#f2c39a',fill0:'rgba(208,141,88,0.26)',fill1:'rgba(208,141,88,0.03)',bh:128}
-  ];
-  const fitText=(t,max)=>{t=String(t);while(ctx.measureText(t).width>max&&t.length>2)t=t.slice(0,-2)+'…';return t};
-  const avatar=(p,x,y,r,ring)=>{
-    const h=cvHue(p.name);
-    ctx.save();
-    ctx.shadowColor='rgba(0,0,0,0.45)';ctx.shadowBlur=18;ctx.shadowOffsetY=6;
-    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=`hsl(${h} 34% 24%)`;ctx.fill();
-    ctx.restore();
-    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.strokeStyle=ring;ctx.lineWidth=r>40?4:3;ctx.stroke();
-    ctx.fillStyle=`hsl(${h} 85% 86%)`;ctx.font=`700 ${Math.round(r*0.95)}px ${CV_SERIF}`;ctx.textAlign='center';
-    ctx.fillText((String(p.name).trim()[0]||'?').toUpperCase(),x,y+r*0.33);
-  };
+  const fit=(t,max)=>{t=String(t);while(ctx.measureText(t).width>max&&t.length>2)t=t.slice(0,-2)+'…';return t};
 
-  // 1. full-bleed felt
-  ctx.fillStyle='#0b1511';ctx.fillRect(0,0,W,H);
-  let g=ctx.createRadialGradient(W/2,HEAD+180,20,W/2,HEAD+180,W*0.8);
-  g.addColorStop(0,'rgba(46,125,92,0.55)');g.addColorStop(1,'rgba(46,125,92,0)');
+  // 1. felt + stage light + floor shade (same recipe as the modal)
+  let g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#173629');g.addColorStop(.42,'#10251d');g.addColorStop(1,'#0a1612');
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  g=ctx.createRadialGradient(W/2,HEAD+250,10,W/2,HEAD+250,420);
-  g.addColorStop(0,'rgba(240,181,82,0.22)');g.addColorStop(1,'rgba(240,181,82,0)');
+  const heroY=HEAD+slack*0.4;
+  g=ctx.createRadialGradient(W/2,heroY+120,30,W/2,heroY+120,620);
+  g.addColorStop(0,'rgba(255,214,140,0.34)');g.addColorStop(.45,'rgba(255,214,140,0.10)');g.addColorStop(1,'rgba(255,214,140,0)');
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  g=ctx.createLinearGradient(0,H-260,0,H);
-  g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,0.35)');
-  ctx.fillStyle=g;ctx.fillRect(0,H-260,W,260);
-  // thin gold frame
-  g=ctx.createLinearGradient(0,0,W,H);
-  g.addColorStop(0,'rgba(255,220,150,0.7)');g.addColorStop(.4,'rgba(255,255,255,0.08)');
-  g.addColorStop(.7,'rgba(255,255,255,0.05)');g.addColorStop(1,'rgba(240,181,82,0.45)');
-  ctx.strokeStyle=g;ctx.lineWidth=2;roundRectPath(ctx,20,20,W-40,H-40,36);ctx.stroke();
+  g=ctx.createLinearGradient(0,H*0.55,0,H);
+  g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,0.32)');
+  ctx.fillStyle=g;ctx.fillRect(0,H*0.55,W,H*0.45);
+  // gold rim, bright at the top and fading down the sides
+  g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'rgba(255,226,160,0.7)');g.addColorStop(.3,'rgba(255,226,160,0.16)');g.addColorStop(1,'rgba(255,255,255,0.06)');
+  ctx.strokeStyle=g;ctx.lineWidth=2.5;roundRectPath(ctx,26,26,W-52,H-52,44);ctx.stroke();
 
-  // 2. header: wordmark left, round pill right, hairline below
-  ctx.textAlign='left';ctx.font=`700 60px ${CV_SERIF}`;
-  ctx.save();ctx.shadowColor='rgba(240,181,82,0.3)';ctx.shadowBlur=20;
-  ctx.fillStyle=goldFill(ctx,52,108);ctx.fillText('Sevens',PAD,104);ctx.restore();
+  // 2. header: wordmark + round pill
+  ctx.textAlign='left';ctx.font=`700 56px ${CV_SERIF}`;
+  ctx.save();ctx.shadowColor='rgba(240,181,82,0.3)';ctx.shadowBlur=18;
+  ctx.fillStyle=goldFill(ctx,62,114);ctx.fillText('Sevens',PAD,110);ctx.restore();
   const rTxt=`ROUND ${G&&G.round?G.round:1}`;
-  ctx.font=`700 20px ${CV_SANS}`;
-  const rW=[...rTxt].reduce((a,c)=>a+ctx.measureText(c).width,0)+4*(rTxt.length-1)+44;
-  ctx.fillStyle='rgba(240,181,82,0.12)';ctx.strokeStyle='rgba(240,181,82,0.45)';ctx.lineWidth=1.5;
-  roundRectPath(ctx,W-PAD-rW,62,rW,48,24);ctx.fill();ctx.stroke();
-  ctx.fillStyle='#ffe7a8';spacedText(ctx,rTxt,W-PAD-rW/2,94,4);
+  ctx.font=`700 22px ${CV_SANS}`;
+  const rW=[...rTxt].reduce((a,c)=>a+ctx.measureText(c).width,0)+5*(rTxt.length-1)+52;
+  ctx.fillStyle='rgba(255,226,160,0.08)';ctx.strokeStyle='rgba(255,226,160,0.32)';ctx.lineWidth=1.5;
+  roundRectPath(ctx,W-PAD-rW,64,rW,56,28);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#ffe7a8';spacedText(ctx,rTxt,W-PAD-rW/2,100,5);
+
+  // 3. champion hero
+  drawCrown(ctx,W/2,heroY+70,96);
+  ctx.font=`700 22px ${CV_SANS}`;ctx.fillStyle='rgba(255,226,160,0.78)';
+  spacedText(ctx,'CHAMPION',W/2,heroY+168,9);
+  let fs=128;const champ=String(winner.name||'Winner');
+  do{ctx.font=`700 ${fs}px ${CV_SERIF}`;fs-=4}while(ctx.measureText(champ).width>W-2*PAD-40&&fs>64);
+  ctx.textAlign='center';
+  ctx.save();ctx.shadowColor='rgba(240,181,82,0.35)';ctx.shadowBlur=34;
+  ctx.fillStyle=goldFill(ctx,heroY+200,heroY+300);ctx.fillText(champ,W/2,heroY+298);ctx.restore();
+  // "<12> pts total · +3 this round" with the number in gold
+  const subA=String(winner.score||0),subB=` pts total  ·  ${winner.roundPts>0?'+'+winner.roundPts+' this round':'cleared their hand'}`;
+  ctx.font=`700 32px ${CV_SANS}`;const aw=ctx.measureText(subA).width;
+  ctx.font=`500 30px ${CV_SANS}`;const bw=ctx.measureText(subB).width;
+  let sx=W/2-(aw+bw)/2;ctx.textAlign='left';
+  ctx.font=`700 32px ${CV_SANS}`;ctx.fillStyle='#ffe7a8';ctx.fillText(subA,sx,heroY+362);
+  ctx.font=`500 30px ${CV_SANS}`;ctx.fillStyle='#b5c7bf';ctx.fillText(subB,sx+aw,heroY+362);
   g=ctx.createLinearGradient(PAD,0,W-PAD,0);
-  g.addColorStop(0,'rgba(240,181,82,0.5)');g.addColorStop(1,'rgba(240,181,82,0)');
-  ctx.strokeStyle=g;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(PAD,HEAD-12);ctx.lineTo(W-PAD,HEAD-12);ctx.stroke();
+  g.addColorStop(0,'rgba(255,226,160,0)');g.addColorStop(.5,'rgba(255,226,160,0.45)');g.addColorStop(1,'rgba(255,226,160,0)');
+  ctx.strokeStyle=g;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(PAD,heroY+418);ctx.lineTo(W-PAD,heroY+418);ctx.stroke();
 
-  // 3. podium (2nd · 1st · 3rd)
-  const order=podN===3?[1,0,2]:podN===2?[1,0]:[0];
-  const GAP=26,colW=podN===3?(W-2*PAD-2*GAP)/3:podN===2?360:420;
-  const totalW=podN*colW+(podN-1)*GAP,x0=(W-totalW)/2,base=HEAD+POD-24;
-  order.forEach((rank,k)=>{
-    const p=byTotal[rank],R=RANK[rank],x=x0+k*(colW+GAP),mid=x+colW/2,top=base-R.bh,champ=rank===0;
-    // block
-    g=ctx.createLinearGradient(0,top,0,base);g.addColorStop(0,R.fill0);g.addColorStop(1,R.fill1);
-    ctx.fillStyle=g;roundRectPath(ctx,x,top,colW,R.bh+24,26);ctx.fill();
-    g=ctx.createLinearGradient(0,top,0,base);g.addColorStop(0,R.c);g.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.strokeStyle=g;ctx.lineWidth=2;roundRectPath(ctx,x,top,colW,R.bh+24,26);ctx.stroke();
-    ctx.font=`700 ${champ?120:88}px ${CV_SERIF}`;ctx.textAlign='center';
-    ctx.fillStyle=champ?goldFill(ctx,top+20,top+150):R.c;ctx.globalAlpha=champ?0.9:0.55;
-    ctx.fillText(String(rank+1),mid,top+(champ?140:100));ctx.globalAlpha=1;
-    // points + round delta + name + avatar (bottom-up)
-    const ptsSize=champ?64:50,ptsY=top-26;
-    ctx.font=`700 ${ptsSize}px ${CV_SERIF}`;
-    const ptsTxt=String(p.score||0);const pw=ctx.measureText(ptsTxt).width;
-    ctx.font=`600 22px ${CV_SANS}`;const uw=ctx.measureText(' pts').width;
-    const px=mid-(pw+uw)/2;
-    ctx.textAlign='left';ctx.font=`700 ${ptsSize}px ${CV_SERIF}`;
-    ctx.fillStyle=champ?goldFill(ctx,ptsY-ptsSize,ptsY):'#f3f1ec';ctx.fillText(ptsTxt,px,ptsY);
-    ctx.font=`600 22px ${CV_SANS}`;ctx.fillStyle='#8fa39a';ctx.fillText(' pts',px+pw,ptsY);
-    ctx.textAlign='center';
-    const subY=ptsY-ptsSize-8;
-    ctx.font=`500 20px ${CV_SANS}`;ctx.fillStyle=p.roundPts>0?'#8fa39a':'#4ade80';
-    ctx.fillText(p.roundPts>0?`+${p.roundPts} this round`:'Went out · +0',mid,subY);
-    const nameY=subY-34;
-    ctx.font=champ?`700 40px ${CV_SERIF}`:`600 30px ${CV_SANS}`;
-    ctx.fillStyle=champ?'#ffe7a8':'#f3f1ec';ctx.fillText(fitText(p.name,colW-24),mid,nameY);
-    const r=champ?58:44,ay=nameY-(champ?44:38)-r;
-    if(champ){
-      g=ctx.createRadialGradient(mid,ay,r*0.6,mid,ay,r*2.4);
-      g.addColorStop(0,'rgba(240,181,82,0.35)');g.addColorStop(1,'rgba(240,181,82,0)');
-      ctx.fillStyle=g;ctx.fillRect(mid-r*2.5,ay-r*2.5,r*5,r*5);
+  // 4. standings panel
+  const listTop=heroY+HERO+slack*0.2;
+  ctx.font=`700 21px ${CV_SANS}`;ctx.fillStyle='#7d9188';
+  const lw=[...'STANDINGS'].reduce((a,c)=>a+ctx.measureText(c).width,0)+5*8;
+  spacedText(ctx,'STANDINGS',PAD+14+lw/2,listTop+12,5);
+  const tw=[...'TOTAL'].reduce((a,c)=>a+ctx.measureText(c).width,0)+5*4;
+  spacedText(ctx,'TOTAL',W-PAD-14-tw/2,listTop+12,5);
+  const pTop=listTop+32,pX=PAD,pW=W-2*PAD;
+  ctx.fillStyle='rgba(6,12,10,0.42)';ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1.5;
+  roundRectPath(ctx,pX,pTop,pW,panelH,32);ctx.fill();ctx.stroke();
+  const medal=['#ffe7a8','#d5dde0','#e3a77a'];
+  shown.forEach((p,i)=>{
+    const gapAbove=more&&i===n-1?52:0,rank=byTotal.indexOf(p);
+    const y=pTop+14+i*rowH+gapAbove,mid=y+rowH/2,isWin=i===0,isLose=showTrail&&p.id===loser.id;
+    if(gapAbove){
+      ctx.textAlign='center';ctx.font=`500 24px ${CV_SANS}`;ctx.fillStyle='#8fa39a';
+      ctx.fillText(`+${more} more player${more>1?'s':''}`,W/2,y-18);
     }
-    avatar(p,mid,ay,r,R.c);
-    if(champ)drawCrown(ctx,mid,ay-r-26,72);
-  });
-
-  // 4. everyone else
-  let ry=HEAD+POD+24;
-  rest.forEach((p,i)=>{
-    const idx=podN+i,isLast=idx===byTotal.length-1&&byTotal.length>3&&(p.score||0)>0;
-    ctx.fillStyle='rgba(6,12,10,0.55)';ctx.strokeStyle=isLast?'rgba(248,113,113,0.38)':'rgba(255,255,255,0.09)';
-    ctx.lineWidth=1.5;roundRectPath(ctx,PAD,ry,W-2*PAD,RH,24);ctx.fill();ctx.stroke();
-    const my=ry+RH/2;
-    ctx.fillStyle='#8fa39a';ctx.font=`700 24px ${CV_SANS}`;ctx.textAlign='center';ctx.fillText(String(idx+1),PAD+40,my+8);
-    avatar(p,PAD+102,my,28,`hsla(${cvHue(p.name)},55%,60%,0.5)`);
-    ctx.textAlign='left';ctx.fillStyle='#f3f1ec';ctx.font=`600 28px ${CV_SANS}`;
-    ctx.fillText(fitText(p.name,W-2*PAD-400),PAD+148,ry+40);
-    let chipX=PAD+148;const chipY=ry+52;
+    if(isWin){
+      g=ctx.createLinearGradient(pX,0,pX+pW,0);g.addColorStop(0,'rgba(240,181,82,0.2)');g.addColorStop(1,'rgba(240,181,82,0.03)');
+      ctx.fillStyle=g;roundRectPath(ctx,pX+10,y+2,pW-20,rowH-4,24);ctx.fill();
+      ctx.strokeStyle='rgba(240,181,82,0.4)';ctx.lineWidth=1.5;roundRectPath(ctx,pX+10,y+2,pW-20,rowH-4,24);ctx.stroke();
+    }else if(i>1&&!gapAbove){
+      ctx.strokeStyle='rgba(255,255,255,0.07)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(pX+30,y);ctx.lineTo(pX+pW-30,y);ctx.stroke();
+    }
+    // rank
+    ctx.textAlign='center';ctx.font=`700 28px ${CV_SANS}`;ctx.fillStyle=rank<3?medal[rank]:'#6f857b';
+    ctx.fillText(String(rank+1),pX+50,mid+10);
+    // avatar
+    const h=cvHue(p.name),ax=pX+116,r=big?36:31;
+    ctx.beginPath();ctx.arc(ax,mid,r,0,Math.PI*2);ctx.fillStyle=`hsl(${h} 34% 24%)`;ctx.fill();
+    ctx.lineWidth=isWin?3.5:2;ctx.strokeStyle=isWin?'rgba(240,181,82,0.9)':`hsla(${h},55%,60%,0.5)`;ctx.stroke();
+    ctx.fillStyle=`hsl(${h} 85% 86%)`;ctx.font=`700 ${Math.round(r*0.95)}px ${CV_SERIF}`;
+    ctx.fillText((String(p.name).trim()[0]||'?').toUpperCase(),ax,mid+r*0.33);
+    // name (+ trailing pill)
+    const nx=ax+r+24,ptsX=pX+pW-34,nameMax=ptsX-210-nx;
+    ctx.textAlign='left';ctx.font=`600 ${big?36:32}px ${CV_SANS}`;ctx.fillStyle='#f3f1ec';
+    const nm=fit(p.name,nameMax-(isLose?150:0));ctx.fillText(nm,nx,mid-8);
+    if(isLose){
+      const nw=ctx.measureText(nm).width;ctx.font=`700 18px ${CV_SANS}`;
+      const tt='TRAILING',ttw=ctx.measureText(tt).width+24;
+      ctx.fillStyle='rgba(248,113,113,0.16)';roundRectPath(ctx,nx+nw+14,mid-34,ttw,30,15);ctx.fill();
+      ctx.fillStyle='#f5a3a3';ctx.fillText(tt,nx+nw+26,mid-13);
+    }
+    // leftover cards or "cleared"
+    let cx=nx;const cy=mid+8;
     if(p.roundPts>0){
-      ctx.font=`700 18px ${CV_SANS}`;
+      ctx.font=`700 22px ${CV_SANS}`;
       for(const c of (p.leftCards||[])){
-        const t=RK[c%13+1]+SYM[c/13|0],tw=ctx.measureText(t).width+16;
-        if(chipX+tw>W-PAD-200){ctx.fillStyle='#8fa39a';ctx.fillText('…',chipX,chipY+21);break}
-        ctx.fillStyle='#fbf9f4';roundRectPath(ctx,chipX,chipY,tw,28,7);ctx.fill();
-        ctx.fillStyle=isRed(c/13|0)?'#c83e3b':'#1b1d1c';ctx.fillText(t,chipX+8,chipY+21);
-        chipX+=tw+6;
+        const t=RK[c%13+1]+SYM[c/13|0],cw=ctx.measureText(t).width+20;
+        if(cx+cw>ptsX-170){ctx.fillStyle='#8fa39a';ctx.fillText('…',cx,cy+25);break}
+        ctx.fillStyle='#fbf9f4';roundRectPath(ctx,cx,cy,cw,34,8);ctx.fill();
+        ctx.fillStyle=isRed(c/13|0)?'#c83e3b':'#1b1d1c';ctx.fillText(t,cx+10,cy+25);
+        cx+=cw+8;
       }
-    }else{ctx.fillStyle='#4ade80';ctx.font=`600 19px ${CV_SANS}`;ctx.fillText('Went out · +0',chipX,chipY+21)}
-    ctx.textAlign='right';ctx.fillStyle=isLast?'#f87171':'#f3f1ec';ctx.font=`700 42px ${CV_SERIF}`;
-    ctx.fillText(String(p.score||0),W-PAD-30,ry+50);
-    ctx.fillStyle='#8fa39a';ctx.font=`500 17px ${CV_SANS}`;
-    ctx.fillText(p.roundPts>0?`+${p.roundPts} this round`:'+0',W-PAD-30,ry+76);
-    ry+=RH+RG;
+    }else{ctx.font=`600 24px ${CV_SANS}`;ctx.fillStyle='#7fdca0';ctx.fillText('Cleared their hand',cx,cy+26)}
+    // points
+    ctx.textAlign='right';ctx.font=`700 ${big?56:48}px ${CV_SERIF}`;
+    ctx.fillStyle=isWin?'#ffe7a8':isLose?'#f5a3a3':'#f3f1ec';ctx.fillText(String(p.score||0),ptsX,mid+6);
+    ctx.font=`500 22px ${CV_SANS}`;ctx.fillStyle='#7d9188';
+    ctx.fillText(p.roundPts>0?`+${p.roundPts} this round`:'+0',ptsX,mid+36);
   });
 
   // 5. footer
-  ctx.textAlign='center';ctx.font=`500 20px ${CV_SANS}`;ctx.fillStyle='rgba(143,163,154,0.8)';
-  ctx.fillText(`Table #${G&&G.room?G.room:'SOLO'}  ·  Lowest score wins`,W/2,H-48);
+  ctx.textAlign='center';ctx.font=`500 24px ${CV_SANS}`;ctx.fillStyle='rgba(169,188,179,0.85)';
+  ctx.fillText(`Table #${G&&G.room?G.room:'SOLO'}   ·   Lowest score wins`,W/2,H-66);
   return cv;
 }
 
