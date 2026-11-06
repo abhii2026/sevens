@@ -28,6 +28,8 @@
   --bw:clamp(34px,8.2vw,66px);
   --hw:clamp(46px,12.6vw,84px);
   --ease:cubic-bezier(.22,1,.36,1);
+  --gold-1:#ffe7a8;--gold-2:#f0b552;--gold-3:#c9801c;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{
@@ -741,7 +743,7 @@ ul.pl-list li{
 .fan{
   --fw:clamp(62px,9.4vw,112px);
   position:relative;width:calc(var(--fw)*3);height:calc(var(--fw)*1.72);
-  margin:clamp(14px,3.2vh,30px) auto clamp(4px,1.4vh,12px);
+  margin:clamp(14px,3.2vh,30px) auto calc(var(--fw) * .3);
   animation:fanFloat 7s ease-in-out infinite;
 }
 .fan::before{
@@ -781,28 +783,23 @@ ul.pl-list li{
   background:linear-gradient(176deg,#fff8e4 0%,var(--gold-1) 30%,var(--gold-2) 62%,var(--gold-3) 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
   filter:drop-shadow(0 6px 22px rgba(240,181,82,.22));
-  animation:lpUp .8s var(--ease) both .15s;
+  animation:lpUp .8s var(--ease) both .2s;
 }
-.lp-tag{
-  margin:clamp(8px,1.6vh,14px) 0 0;max-width:440px;
-  color:#b5c7bf;font-size:clamp(14px,1.6vw,16.5px);line-height:1.55;
-  animation:lpUp .8s var(--ease) both .25s;
+/* "presented by" brand mark: engraved caps between hairlines */
+.lp-brand{
+  display:flex;align-items:center;justify-content:center;gap:clamp(10px,1.4vw,16px);
+  margin:0 0 clamp(6px,1.1vh,12px);
+  font:600 clamp(10.5px,1.05vw,12.5px)/1 'Inter',system-ui,sans-serif;
+  letter-spacing:.42em;text-transform:uppercase;
+  color:#d8c597;white-space:nowrap;
+  animation:lpUp .8s var(--ease) both .12s;
 }
-.lp-tag em{font-style:normal;color:var(--text);font-weight:600}
-
-.lp-feats{
-  list-style:none;margin:clamp(14px,3vh,28px) 0 0;padding:0;
-  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%;
-  animation:lpUp .8s var(--ease) both .35s;
+.lp-brand span{padding-left:.42em} /* optically centre the tracked caps */
+.lp-brand::before,.lp-brand::after{
+  content:"";flex:none;width:clamp(22px,4vw,48px);height:1px;
+  background:linear-gradient(90deg,transparent,rgba(240,181,82,.7));
 }
-.lp-feats li{
-  display:flex;flex-direction:column;align-items:center;gap:6px;
-  padding:12px 8px;border-radius:14px;
-  background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);
-}
-.lp-feats svg{width:20px;height:20px;fill:var(--gold-2)}
-.lp-feats b{font-size:13px;font-weight:650;color:var(--text);line-height:1.2}
-.lp-feats span{font-size:11.5px;color:var(--muted);line-height:1.3}
+.lp-brand::after{background:linear-gradient(270deg,transparent,rgba(240,181,82,.7))}
 
 /* form card */
 .lp-panel{
@@ -874,15 +871,15 @@ ul.pl-list li{
     padding:max(12px,1.8vh) 16px;padding:max(12px,1.8dvh) 16px;
     gap:clamp(10px,2.2dvh,22px);align-content:center;
   }
-  .lp-feats{display:none}
   .lp-eyebrow{font-size:10.5px;padding:5px 11px 5px 9px}
+  .lp-brand{letter-spacing:.34em;margin:0 0 clamp(4px,.9dvh,10px)}
+  .lp-brand span{padding-left:.34em}
   .fan{
     --fw:clamp(40px,min(16vw,9vh),84px);
     --fw:clamp(40px,min(16vw,9dvh),84px);
-    margin:clamp(8px,2dvh,22px) auto clamp(2px,.8dvh,8px);
+    margin:clamp(8px,2dvh,22px) auto calc(var(--fw) * .3);
   }
   .lp-word{font-size:clamp(40px,min(15vw,8.4vh),86px);font-size:clamp(40px,min(15vw,8.4dvh),86px)}
-  .lp-tag{font-size:13.5px;margin-top:clamp(4px,1dvh,10px);max-width:360px}
   .lp-panel{padding:clamp(14px,2.4dvh,24px) 16px;border-radius:20px;max-width:440px}
   .lp-panel h2{font-size:21px}
   .lp-panel-sub{font-size:13px;margin:4px 0 clamp(10px,1.8dvh,18px)}
@@ -907,16 +904,15 @@ ul.pl-list li{
 }
 @media(max-width:899px) and (max-height:620px){
   .lp-eyebrow{display:none}
-  .lp-tag{display:none}
 }
 
 /* ---------- landscape phones / very short screens: side-by-side, compact ---------- */
 @media(orientation:landscape) and (max-height:560px){
   .lp-inner{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;padding:10px 20px;align-content:center}
-  .lp-feats,.lp-eyebrow,.lp-panel-sub,.lp-or{display:none}
-  .fan{--fw:clamp(36px,11vh,64px);--fw:clamp(36px,11dvh,64px);margin:0 auto 4px}
+  .lp-eyebrow,.lp-panel-sub,.lp-or{display:none}
+  .fan{--fw:clamp(36px,11vh,64px);--fw:clamp(36px,11dvh,64px);margin:0 auto calc(var(--fw) * .3)}
+  .lp-brand{margin:0 0 6px;font-size:10px;letter-spacing:.32em}
   .lp-word{font-size:clamp(36px,13vh,72px);font-size:clamp(36px,13dvh,72px)}
-  .lp-tag{display:block;font-size:13px;margin-top:6px}
   .lp-panel{padding:14px 16px;border-radius:18px}
   .lp-panel h2{font-size:19px;margin-bottom:8px}
   .lp-field{margin-bottom:8px}
@@ -932,7 +928,167 @@ ul.pl-list li{
   .lp-alt .rules-link span{display:none}
 }
 @media(orientation:landscape) and (max-height:400px){
-  .lp-panel h2,.lp-tag{display:none}
+  .lp-panel h2{display:none}
+}
+
+/* ================= LOBBY (matches landing) ================= */
+#app{position:relative;z-index:1}
+.lp-bg[hidden]{display:none}
+#app.lobby-mode .topbar{border-bottom-color:rgba(255,255,255,.06)}
+.lb{
+  flex:1;min-height:0;width:100%;
+  display:flex;align-items:center;justify-content:center;
+  gap:clamp(28px,5vw,80px);padding:clamp(12px,3vh,32px) 8px;
+}
+@media(min-width:960px){body.chat-open .lb{padding-right:330px}}
+.lb-hero{
+  flex:0 1 520px;min-width:0;container-type:inline-size;
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+}
+.lb .fan{--fw:clamp(54px,6.2vw,82px);animation:none;margin:0 auto calc(var(--fw) * .3)}
+.lb .lp-brand{margin-top:0}
+.lb-label{
+  margin-top:clamp(10px,2.2vh,22px);
+  font:600 11px/1 'Inter',system-ui,sans-serif;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);
+}
+.lb-code{
+  margin:clamp(4px,1vh,10px) 0 clamp(14px,2.6vh,24px);padding-left:.14em;
+  font:700 clamp(56px,8vw,112px)/1 var(--serif);font-size:clamp(52px,24cqi,112px);
+  letter-spacing:.14em;
+  background:linear-gradient(176deg,#fff8e4 0%,var(--gold-1) 30%,var(--gold-2) 62%,var(--gold-3) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 6px 22px rgba(240,181,82,.22));
+}
+.lb-link{
+  display:flex;align-items:center;gap:10px;width:100%;max-width:440px;
+  padding:7px 7px 7px 14px;border-radius:14px;cursor:pointer;
+  background:rgba(6,12,10,.55);border:1px solid rgba(255,255,255,.1);
+  transition:border-color .2s,box-shadow .2s;
+}
+.lb-link:hover,.lb-link:focus-visible{border-color:rgba(240,181,82,.55);box-shadow:0 0 0 4px rgba(240,181,82,.1);outline:none}
+.lb-link>svg{width:18px;height:18px;fill:var(--gold-2);flex:none}
+.lb-link code{
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;
+  font:500 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#cfdcd5;
+}
+.lb-copy{
+  flex:none;display:inline-flex;align-items:center;gap:6px;
+  padding:8px 12px;border-radius:10px;font:700 12.5px/1 'Inter',system-ui,sans-serif;color:#241703;
+  background:linear-gradient(180deg,#ffd27a 0%,#f0b552 45%,#d98f26 100%);
+  box-shadow:0 6px 14px rgba(224,159,62,.28),inset 0 1px 0 rgba(255,255,255,.35);
+}
+.lb-copy svg{width:14px;height:14px;fill:currentColor}
+.lb-hint{margin:12px 0 0;font-size:12.5px;color:var(--muted)}
+
+.lb-panel{flex:0 0 420px;max-height:100%;display:flex;flex-direction:column;animation:none}
+.lb-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:clamp(12px,2vh,18px)}
+.lb-count{
+  margin-left:auto;
+  font:600 12.5px/1 'Inter',system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--muted);
+  padding:6px 11px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+}
+.lb-count b{color:var(--gold-1)}
+.lb-list{
+  list-style:none;margin:0;padding:0;flex:1 1 auto;min-height:62px;overflow-y:auto;
+  display:flex;flex-direction:column;gap:8px;overscroll-behavior:contain;
+}
+.lb-p{
+  display:flex;align-items:center;gap:12px;padding:9px 10px 9px 10px;border-radius:14px;flex:none;
+  background:rgba(6,12,10,.45);border:1px solid rgba(255,255,255,.07);
+}
+.lb-p.me{border-color:rgba(240,181,82,.32);background:linear-gradient(90deg,rgba(240,181,82,.1),rgba(6,12,10,.45) 65%)}
+.lb-av{
+  width:38px;height:38px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font:700 16px/1 var(--serif);
+  background:hsl(var(--h) 34% 24%);color:hsl(var(--h) 85% 86%);
+  box-shadow:inset 0 0 0 1px hsl(var(--h) 55% 60% / .4),0 4px 10px rgba(0,0,0,.3);
+}
+.lb-name{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.lb-name b{font-size:14.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-name small{font-size:11.5px;color:var(--gold-2);font-weight:600}
+.lb-chip{
+  flex:none;display:inline-flex;align-items:center;gap:6px;
+  font:600 11.5px/1 'Inter',system-ui,sans-serif;padding:6px 10px;border-radius:999px;
+  background:rgba(255,255,255,.05);color:var(--muted);border:1px solid rgba(255,255,255,.08);
+}
+.lb-chip i{width:7px;height:7px;border-radius:50%;background:var(--neon-green)}
+.lb-chip.ready{color:#9fe3b9}
+.lb-chip.wait i{background:var(--gold-2);animation:livePulse 1.6s infinite}
+.lb-chip.host{color:var(--gold-1);background:rgba(240,181,82,.1);border-color:rgba(240,181,82,.32)}
+.lb-chip.host svg{width:15px;height:12px}
+.lb-empty{
+  flex:none;display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:13px 12px;border-radius:14px;border:1px dashed rgba(255,255,255,.14);
+  color:var(--muted);font-size:13px;
+}
+.lb-empty svg{width:16px;height:16px;fill:currentColor}
+.lb-meta{margin:clamp(10px,1.8vh,16px) 0;font-size:12.5px;color:var(--muted);text-align:center}
+.lb-meta b{color:var(--text);font-weight:600}
+.lb-wait{
+  height:52px;display:flex;align-items:center;justify-content:center;gap:4px;
+  border-radius:14px;border:1px dashed rgba(240,181,82,.35);background:rgba(240,181,82,.05);
+  color:#d8c597;font-size:14px;
+}
+.lb-wait b{color:var(--gold-1);margin:0 .25em}
+.lb-dots{display:inline-flex;gap:3px;margin-left:4px}
+.lb-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;animation:lbDot 1.2s infinite ease-in-out}
+.lb-dots i:nth-child(2){animation-delay:.15s}.lb-dots i:nth-child(3){animation-delay:.3s}
+@keyframes lbDot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+.lb-cta svg{width:18px;height:18px;fill:currentColor}
+.lb-alt{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px}
+.lb-alt .lp-solo svg{fill:#c9d6cf}
+.lb-panel .lb-alt .rules-link{
+  margin:0;width:48px;height:48px;padding:0;justify-content:center;
+  border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.04);color:#c9d6cf;
+}
+.lb-panel .lb-alt .rules-link svg{width:19px;height:19px}
+.lb-alt .rules-link span{display:none}
+
+/* entrance motion only on first arrival, not on every lobby update */
+.lb.lb-in .lb-hero>*{animation:lpUp .8s var(--ease) both}
+.lb.lb-in .lb-hero>:nth-child(2){animation-delay:.08s}
+.lb.lb-in .lb-hero>:nth-child(3){animation-delay:.14s}
+.lb.lb-in .lb-hero>:nth-child(4){animation-delay:.2s}
+.lb.lb-in .lb-hero>:nth-child(n+5){animation-delay:.26s}
+.lb.lb-in .lb-panel{animation:lpUp .9s var(--ease) both .2s}
+.lb:not(.lb-in) .fan-slot{animation:none}
+
+/* lobby on phones: stacked, fits one screen, list scrolls inside the card */
+@media(max-width:899px){
+  .lb{flex-direction:column;justify-content:center;gap:clamp(12px,2.6dvh,26px);padding:clamp(8px,1.6dvh,18px) 0}
+  .lb-hero{flex:none;width:100%}
+  .lb .fan{--fw:clamp(40px,min(13vw,7.4vh),70px);--fw:clamp(40px,min(13vw,7.4dvh),70px)}
+  .lb-code{font-size:clamp(40px,min(17vw,8.6vh),84px);font-size:clamp(40px,min(17vw,8.6dvh),84px);margin-bottom:clamp(10px,2dvh,20px)}
+  .lb-label{margin-top:clamp(6px,1.4dvh,16px)}
+  .lb-panel{flex:0 1 auto;min-height:0;width:100%;max-width:440px}
+  .lb-p{padding:8px 10px}
+  .lb-av{width:34px;height:34px;font-size:15px}
+  .lb-wait,.lb .lp-cta{height:clamp(46px,6.6dvh,52px)}
+  .lb-panel .lb-alt .rules-link,.lb-alt .lp-solo{height:clamp(44px,6.2dvh,48px)}
+  .lb-panel .lb-alt .rules-link{width:clamp(44px,6.2dvh,48px)}
+}
+@media(max-width:899px){
+  .lb .fan,.lb-hint{display:none}
+}
+@media(max-width:899px) and (max-height:600px){
+  .lb .lp-brand,.lb-label{display:none}
+  .lb-code{margin-top:0}
+}
+@media(orientation:landscape) and (max-height:560px){
+  .lb{flex-direction:row;gap:24px;padding:8px 0}
+  .lb-hero{flex:1 1 0;width:auto}
+  .lb .fan,.lb-hint,.lb-label{display:none}
+  .lb-code{font-size:clamp(40px,14dvh,72px);margin-bottom:10px}
+  .lb-panel{flex:0 1 380px;width:auto;max-height:100%;padding:14px 16px}
+  .lb-head{margin-bottom:8px}
+  .lb-meta{margin:8px 0}
+  .lb-wait,.lb .lp-cta{height:44px}
+  .lb-panel .lb-alt .rules-link,.lb-alt .lp-solo{height:42px}
+  .lb-panel .lb-alt .rules-link{width:42px}
+  .lb-alt{margin-top:8px}
+}
+@media(min-width:900px) and (max-height:680px){
+  .lb .fan,.lb-hint{display:none}
 }
 
 @media(max-height:700px){
@@ -971,6 +1127,12 @@ ul.pl-list li{
 </symbol>
 </defs></svg>
 
+<div id="lpBg" class="lp-bg" aria-hidden="true">
+  <svg class="lp-glyph g1" viewBox="0 0 100 100"><use href="#s0"/></svg>
+  <svg class="lp-glyph g2 r" viewBox="0 0 100 100"><use href="#s1"/></svg>
+  <svg class="lp-glyph g3" viewBox="0 0 100 100"><use href="#s3"/></svg>
+  <svg class="lp-glyph g4 r" viewBox="0 0 100 100"><use href="#s2"/></svg>
+</div>
 <div id="app"></div>
 <div id="chatBackdrop" class="chat-backdrop"></div>
 <aside id="chat" class="chat" hidden>
@@ -1723,6 +1885,7 @@ document.addEventListener('click',async e=>{
 
 app.onkeydown=e=>{
   if(e.key==='Enter'&&(e.target.id==='nm'||e.target.id==='rm'))return join();
+  if((e.key==='Enter'||e.key===' ')&&e.target.id==='share'){e.preventDefault();e.target.click();return}
   if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('.hl [data-c]')){
     e.preventDefault();tap(+e.target.dataset.c);
   }
@@ -1791,24 +1954,18 @@ function rulesTrigger(){
   </button>`;
 }
 
+const fanHTML=()=>`<div class="fan" aria-hidden="true">${[6,32,45,19].map((id,i)=>`<div class="fan-slot${id===19?' hero':''}" style="--i:${i}">${card(id)}</div>`).join('')}</div>`;
+const brandHTML=`<p class="lp-brand"><span>Preethi International</span></p>`;
 function landingHTML(pre){
-  const fan=[6,32,45,19].map((id,i)=>`<div class="fan-slot${id===19?' hero':''}" style="--i:${i}">${card(id)}</div>`).join('');
-  const glyph=(s,c)=>`<svg class="lp-glyph ${c}${isRed(s)?' r':''}" viewBox="0 0 100 100"><use href="#s${s}"/></svg>`;
   return `<div class="landing">
-    <div class="lp-bg" aria-hidden="true">${glyph(0,'g1')}${glyph(1,'g2')}${glyph(3,'g3')}${glyph(2,'g4')}</div>
     <main class="lp-inner">
       <section class="lp-hero">
         <span class="lp-eyebrow">${pre
           ?`<span class="lp-live"></span>You're invited · <b>#${pre}</b>`
           :`<span class="lp-live"></span>Live multiplayer card table`}</span>
-        <div class="fan" aria-hidden="true">${fan}</div>
+        ${fanHTML()}
+        ${brandHTML}
         <h1 class="lp-word">Sevens</h1>
-        <p class="lp-tag">Open with the <em>7♥</em>, build every suit up and down, and race to empty your hand. <em>Lowest score wins.</em></p>
-        <ul class="lp-feats">
-          <li><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg><b>2–12 players</b><span>One table, everyone in</span></li>
-          <li><svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg><b>No sign-up</b><span>Share a link to invite</span></li>
-          <li><svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg><b>Never stalls</b><span>Bots cover dropouts</span></li>
-        </ul>
       </section>
       <section class="lp-panel" aria-labelledby="lpTitle">
         <h2 id="lpTitle">${pre?'Join the table':'Take a seat'}</h2>
@@ -1866,6 +2023,7 @@ function topbarHTML(){
 
 function render(){
   keepAwake();
+  document.getElementById('lpBg').hidden=!!(G&&G.phase!=='lobby');
   if(location.protocol==='file:'){
     app.className='';showOver('');
     app.innerHTML=`<div class="center">${logo}<div class="panel" style="text-align:left;margin-top:16px"><b>Opened as a local file</b><ol style="padding-left:20px;color:var(--muted)"><li>Run <code>node server.js</code></li><li>Open <code>http://localhost:3000</code> in your browser, or try Solo Practice below.</li></ol><button id="soloBtn" class="btn" type="button" style="width:100%;margin-top:8px">Practice vs Bots</button></div></div>`;
@@ -1880,30 +2038,56 @@ function render(){
   table();
 }
 
+const nameHue=s=>{let h=7;for(const c of String(s).toLowerCase())h=(h*31+c.charCodeAt(0))%360;return h};
 function lobby(){
+  const firstVisit=!app.classList.contains('lobby-mode');
   app.className='lobby-mode';
   const host=G.host===G.you,n=G.players.length;
   const invite=esc(G.url||location.origin+location.pathname+'?r='+G.room);
-  app.innerHTML=`${topbarHTML()}<div class="center">
-    <div class="panel">
-      <h2 style="font-size:20px">Room ${esc(G.room)}</h2>
-      <p style="margin:4px 0 6px;color:var(--muted);font-size:13px">Share this link to invite friends:</p>
-      <div class="url-box" id="share" title="Click to copy link">
+  const hostP=G.players.find(p=>p.id===G.host);
+  const rows=G.players.map(p=>{
+    const me=p.id===G.you,isHost=p.id===G.host;
+    const chip=isHost
+      ?`<span class="lb-chip host"><svg viewBox="0 0 64 52"><use href="#crownSvg"/></svg>Host</span>`
+      :p.on?`<span class="lb-chip ready"><i></i>Ready</span>`:`<span class="lb-chip wait"><i></i>Connecting…</span>`;
+    const initial=esc((String(p.name).trim()[0]||'?').toUpperCase());
+    return `<li class="lb-p${me?' me':''}" style="--h:${nameHue(p.name)}">
+      <span class="lb-av" aria-hidden="true">${initial}</span>
+      <span class="lb-name"><b>${esc(p.name)}</b>${me?'<small>You</small>':''}</span>${chip}
+    </li>`;
+  }).join('');
+  const empty=n<2?`<li class="lb-empty"><svg viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>Invite a friend — they'll appear here</li>`:'';
+  const meta=n<2?'Waiting for at least 2 players…':`<b>${n} players</b> · ${Math.floor(52/n)}${52%n?'–'+Math.ceil(52/n):''} cards each`;
+  const action=host
+    ?`<button class="btn lp-cta lb-cta" data-a="start" type="button" ${n<2?'disabled':''}><svg viewBox="0 0 100 100"><use href="#s1"/></svg>Deal Cards</button>`
+    :`<div class="lb-wait" role="status">Waiting for<b>${esc(hostP?hostP.name:'the host')}</b>to deal<span class="lb-dots"><i></i><i></i><i></i></span></div>`;
+  app.innerHTML=`${topbarHTML()}<main class="lb${firstVisit?' lb-in':''}">
+    <section class="lb-hero">
+      ${fanHTML()}
+      ${brandHTML}
+      <span class="lb-label">Table code</span>
+      <div class="lb-code" aria-label="Table code ${esc(G.room)}">${esc(G.room)}</div>
+      <div class="lb-link" id="share" role="button" tabindex="0" title="Copy invite link">
+        <svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
         <code>${invite}</code>
-        <span>Copy</span>
+        <span class="lb-copy"><svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>Copy</span>
       </div>
-      <ul class="pl-list">${G.players.map(p=>`<li>
-        <span><b>${esc(p.name)}</b>${p.id===G.you?' <small style="color:var(--muted)">(you)</small>':''}</span>
-        <span class="tag-pill ${p.id===G.host?'host':p.on?'ready':''}">${p.id===G.host?'Host':p.on?'Ready':'Connecting…'}</span>
-      </li>`).join('')}</ul>
-      <p style="color:var(--muted);font-size:12.5px;margin:0 0 10px">${n<2?'Waiting for at least 2 players…':`${n} players · ${Math.floor(52/n)}${52%n?'–'+Math.ceil(52/n):''} cards each`}</p>
-      <div class="lobby-actions">
-        ${host?`<button class="btn" data-a="start" type="button" ${n<2?'disabled':''}>Deal Cards</button>`:'<p style="margin:0;color:var(--muted);font-size:13px">Waiting for host to deal…</p>'}
-        <button class="btn-ghost" data-leave="1" type="button">Leave</button>
+      <p class="lb-hint">Send the link, or have friends enter the code on the home screen.</p>
+    </section>
+    <section class="lp-panel lb-panel" aria-labelledby="lbTitle">
+      <div class="lb-head">
+        <h2 id="lbTitle">Players</h2>
+        <span class="lb-count"><b>${n}</b> / ${G.max}</span>
       </div>
-      ${rulesTrigger()}
-    </div>
-  </div>`;
+      <ul class="lb-list">${rows}${empty}</ul>
+      <p class="lb-meta">${meta}</p>
+      ${action}
+      <div class="lp-alt lb-alt">
+        <button class="btn-ghost lp-solo" data-leave="1" type="button"><svg viewBox="0 0 24 24"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>Leave table</button>
+        ${rulesTrigger()}
+      </div>
+    </section>
+  </main>`;
   renderTopbarState();paintChat();showOver('');
 }
 
