@@ -47,7 +47,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alert: null, endAlerted: false, invalidated: null };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -112,7 +112,7 @@ function view(S, p) {
     })),
     board: S.board, turn: cur ? cur.id : null, hand: p.hand, legal: S.phase === 'playing' && cur === p ? legal(S, p) : [],
     last: S.last, log: S.log.slice(-5), spec: p.spectator, place: p.place,
-    chat: S.chat.slice(-40), alert: S.alert, wait, invalid: inv
+    chat: S.chat.slice(-40), alerts: S.alerts, wait, invalid: inv
   };
 }
 
@@ -166,7 +166,12 @@ function addChat(S, name, text, sys, kind = '') {
   S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys, kind });
   if (S.chat.length > 80) S.chat.splice(0, S.chat.length - 80);
 }
-function notify(S, msg, kind = '') { addChat(S, '', msg, true, kind); S.alert = { id: S.chatSeq, msg }; }
+function notify(S, msg, kind = '') {
+  addChat(S, '', msg, true, kind);
+  // Keep a short list (not a single slot) so simultaneous alerts in one push aren't overwritten
+  S.alerts.push({ id: S.chatSeq, msg });
+  if (S.alerts.length > 5) S.alerts.shift();
+}
 
 // ============ Bot: Traps opponents with high-point cards (8..K) while shedding its own heavy cards ============
 const BOT_MS = +process.env.BOT_MS || 50;
@@ -438,7 +443,7 @@ function start(S) {
   deck.forEach((c, i) => S.players[i % n].hand.push(c));
   S.players.forEach(p => p.hand.sort((a, b) => a - b));
   S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.log = [];
-  S.alert = null; S.endAlerted = false; S.invalidated = null;
+  S.alerts = []; S.endAlerted = false; S.invalidated = null;
 
   // Case 1: Check if any player was assigned all 4 Kings (4 K's)
   const fourKHolder = S.players.find(p => hasFourKings(p.hand));

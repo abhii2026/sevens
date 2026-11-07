@@ -1496,6 +1496,7 @@ function startPractice(playerName){
   deck.forEach((c,i)=>P_STATE.hands[i%4].push(c));
   P_STATE.hands.forEach(h=>h.sort((a,b)=>a-b));
   P_STATE.board=[null,null,null,null];P_STATE.started=false;P_STATE.places=0;P_STATE.last=-1;
+  P_STATE.alerted3={}; // reset per round, or a player alerted once is never alerted again
   P_STATE.turn=P_STATE.hands.findIndex(h=>h.includes(19));
   const prevScores=isNew?[0,0,0,0]:P_STATE.players.map(p=>p.score||0);
   P_STATE.players=names.map((n,i)=>({id:i+1,name:n,n:13,on:true,bot:i>0,place:0,spec:false,score:prevScores[i],roundPts:0,leftCards:[]}));
@@ -1575,14 +1576,16 @@ function pPlay(idx,id){
     syncPracticeView();
     return;
   }
+  const msgs=[];
   P_STATE.players.forEach((pl,pi)=>{
     if(P_STATE.hands[pi].length===3&&!P_STATE.alerted3[pl.id]&&pCanFinishInThree(P_STATE.board,P_STATE.started,P_STATE.hands[pi])){
       P_STATE.alerted3[pl.id]=true;
       const msg=`⚡ Victory lap alert: The last three cards ${pl.name} holds are sure to finish in the next three rounds — clutch your Kings and brace for impact!`;
       P_STATE.chat.push({id:++P_STATE.chatSeq,name:'',text:msg,sys:true,kind:''});
-      toast(msg);
+      msgs.push(msg);
     }
   });
+  if(msgs.length)queueAlerts(msgs);
   pAdvance();syncPracticeView();
 }
 
@@ -1594,8 +1597,13 @@ function applyIncomingState(nextG){
   const want=roomFromUrl();
   if(want && G.room!==want){if(es)es.close();T='';setStore('sevensT',null);G=null;lastSig='';render();return}
   if(G.room&&!want)history.replaceState(null,'','?r='+G.room);
-  if(firstMsg){firstMsg=false;lastAlert=G.alert?G.alert.id:0}
-  else if(G.alert&&G.alert.id!==lastAlert){lastAlert=G.alert.id;toast(G.alert.msg)}
+  const alerts=G.alerts||[];
+  if(firstMsg){firstMsg=false;lastAlert=alerts.length?alerts[alerts.length-1].id:0}
+  else{
+    const fresh=alerts.filter(a=>a.id>lastAlert);
+    if(fresh.length){lastAlert=fresh[fresh.length-1].id;queueAlerts(fresh.map(a=>a.msg))}
+    else if(alerts.length&&alerts[alerts.length-1].id<lastAlert)lastAlert=alerts[alerts.length-1].id;
+  }
   if(G.last>=0&&G.last!==prevLast)sfx('card');
   const sig=stateSig(G);
   if(sig===lastSig){paintChat();return}
@@ -1633,6 +1641,13 @@ async function api(b){
   }
 }
 
+// Show several alerts one after another so simultaneous ones aren't wiped by the next toast
+let alertQ=[],alertBusy=false;
+function queueAlerts(msgs){alertQ.push(...msgs);if(!alertBusy)nextAlert()}
+function nextAlert(){
+  if(!alertQ.length){alertBusy=false;return}
+  alertBusy=true;toast(alertQ.shift());setTimeout(nextAlert,3600);
+}
 function toast(m){
   document.querySelectorAll('.toast').forEach(t=>t.remove());
   const d=document.createElement('div');d.className='toast';d.setAttribute('role','status');d.textContent=m;
