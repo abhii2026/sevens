@@ -608,6 +608,34 @@ ul.pl-list li{
 .sc-tool svg{width:16px;height:16px;fill:var(--gold-2)}
 .sc-tool[data-leave] svg{fill:#9fb2a9}
 
+/* round-over "Table talk": results → discuss → act. Chat panel is lifted above the overlay. */
+.sc-talk{flex:none;margin-top:clamp(12px,2dvh,16px);padding:10px 12px 12px;border-radius:14px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.08);text-align:left}
+.sc-talk-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.sc-talk-title{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#9fb2a9}
+.sc-talk-open{display:inline-flex;align-items:center;gap:6px;padding:4px 2px;background:none;border:0;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;color:var(--gold-1)}
+.sc-talk-open:hover{text-decoration:underline;text-underline-offset:3px}
+.sc-talk-open svg{width:12px;height:12px;fill:currentColor}
+.sc-chat-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--gold-1);color:#1a1205;font-size:11px;font-weight:700;display:inline-grid;place-items:center}
+.sc-chat-badge[hidden]{display:none}
+.sc-talk-feed{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;font-size:13px;line-height:1.35;color:#cfdcd5}
+.sc-talk-feed p{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-talk-feed b{color:var(--gold-1);font-weight:600;margin-right:4px}
+.sc-talk-feed .empty{color:#9fb2a9}
+.sc-quick{display:flex;gap:6px;flex-wrap:wrap}
+.sc-quick button{
+  flex:1 1 auto;min-height:34px;padding:0 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;
+  color:#e6efe9;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);transition:background .15s,border-color .15s,color .15s;
+}
+.sc-quick button:hover{border-color:rgba(240,181,82,.5)}
+.sc-quick button.on{background:rgba(240,181,82,.16);border-color:var(--gold-1);color:var(--gold-1)}
+body.chat-open .sc-talk-feed{display:none} /* full chat is already visible */
+.sc.sc-in .sc-talk{animation:lpUp .6s var(--ease) both .95s}
+@media(max-height:640px){.sc-talk-feed{display:none}.sc-talk-head{margin-bottom:6px}}
+@media(orientation:landscape) and (max-height:560px){.sc-talk{margin-top:8px;padding:8px 10px}.sc-talk-head{display:none}.sc-quick button{min-height:30px}}
+body.round-over .chat{z-index:260}
+body.round-over .chat-backdrop{z-index:255}
+@media(min-width:960px){body.round-over.chat-open .over{padding-right:342px}}
+
 /* one-time entrance */
 .sc-burst{position:absolute;left:50%;top:21px;width:0;height:0;pointer-events:none}
 .sc-burst i{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:var(--gold-1);box-shadow:0 0 8px rgba(240,181,82,.8);opacity:0}
@@ -1984,6 +2012,7 @@ document.addEventListener('click',async e=>{
   if(e.target.closest('#rulesBtn')){
     document.getElementById('rulesModal').hidden=false;return;
   }
+  const qr=e.target.closest('[data-qr]');if(qr)return sendQuickReply(qr);
   if(e.target.closest('#shareCardBtn'))return shareScorecard();
   if(e.target.closest('#dlCardBtn'))return downloadScorecard();
   if(e.target.closest('[data-leave]'))return askLeaveTable();
@@ -1996,7 +2025,7 @@ document.addEventListener('click',async e=>{
     toast(muted?'Sound muted':'Sound enabled');
     renderTopbarState();return;
   }
-  if(e.target.closest('#chatBtn')){
+  if(e.target.closest('#chatBtn')||e.target.closest('#scChatBtn')){
     chatOpen=!chatOpen;paintChat();
     if(G&&G.phase!=='lobby')setTimeout(()=>layout(innerWidth/innerHeight>1.25),20);
     if(chatOpen)setTimeout(()=>{const m=document.getElementById('chatMsgs');if(m)m.scrollTop=m.scrollHeight},0);
@@ -2036,7 +2065,7 @@ function paintChat(){
   const el=document.getElementById('chat'),bdBackdrop=document.getElementById('chatBackdrop');
   if(!G){
     el.hidden=true;bdBackdrop.classList.remove('open');
-    document.body.classList.remove('chat-open');
+    document.body.classList.remove('chat-open','round-over');
     showOver('');return;
   }
   el.hidden=!chatOpen;
@@ -2060,6 +2089,21 @@ function paintChat(){
   const bd=document.getElementById('chatBadge'),cb=document.getElementById('chatBtn');
   if(cb)cb.classList.toggle('active',chatOpen);
   if(bd){bd.hidden=!unread||chatOpen;bd.textContent=unread>9?'9+':unread}
+  paintScChat(msgs,unread);
+}
+
+// Keeps the scorecard's "Table talk" (latest messages + unread count) in sync
+function paintScChat(msgs,unread){
+  document.body.classList.toggle('round-over',!!G&&G.phase==='over');
+  const feed=document.getElementById('scTalkFeed');if(!feed)return;
+  const me=G.players.find(p=>p.id===G.you),myName=me?me.name:'';
+  const recent=msgs.filter(m=>!m.sys).slice(-2);
+  feed.innerHTML=recent.length
+    ?recent.map(m=>`<p><b>${m.name===myName?'You':esc(m.name)}</b>${esc(m.text)}</p>`).join('')
+    :'<p class="empty">Up for another round? Let the table know.</p>';
+  const lbl=document.getElementById('scChatLbl');if(lbl)lbl.textContent=chatOpen?'Hide chat':'Open chat';
+  const b=document.getElementById('scChatBadge');
+  if(b){b.hidden=!unread||chatOpen;b.textContent=unread>9?'9+':unread}
 }
 
 function showOver(html){
@@ -2284,6 +2328,31 @@ function countUp(root){
 
 const ARROW_SVG='<svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>';
 
+// "Table talk" on the scorecard: latest messages + one-tap replies so players can
+// agree on another round without opening the chat (optional — the host can always deal).
+const QUICK_HOST=['Everyone in?','Dealing in 10s','Last round'];
+const QUICK_GUEST=["I'm in",'Give me a minute',"I'm out"];
+let scReply={round:0,msg:''};
+function scTalkHTML(host){
+  const picked=scReply.round===G.round?scReply.msg:'';
+  const chips=(host?QUICK_HOST:QUICK_GUEST).map(m=>
+    `<button type="button" data-qr="${esc(m)}" class="${m===picked?'on':''}" aria-pressed="${m===picked}">${esc(m)}</button>`).join('');
+  return `<div class="sc-talk">
+    <div class="sc-talk-head">
+      <span class="sc-talk-title">Table talk</span>
+      <button id="scChatBtn" class="sc-talk-open" type="button"><span id="scChatLbl">${chatOpen?'Hide chat':'Open chat'}</span><span id="scChatBadge" class="sc-chat-badge" hidden></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z"/></svg></button>
+    </div>
+    <div id="scTalkFeed" class="sc-talk-feed" aria-live="polite"></div>
+    <div class="sc-quick" role="group" aria-label="Quick replies">${chips}</div>
+  </div>`;
+}
+function sendQuickReply(btn){
+  const msg=btn.dataset.qr;
+  scReply={round:G.round,msg};
+  btn.parentElement.querySelectorAll('button').forEach(b=>{const on=b===btn;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)});
+  api({a:'chat',msg}).then(r=>r&&r.err&&toast(r.err));
+}
+
 function buildRoundOverModal(fresh){
   const seated=G.players.filter(p=>!p.spec);
   if(!seated.length)return '';
@@ -2326,6 +2395,7 @@ function buildRoundOverModal(fresh){
     <div class="sc-head"><span>Standings</span><span>Total</span></div>
     <ol class="sc-list">${rows}</ol>
     ${showTrail?`<p class="sc-roast"><b>${esc(loser.name)}</b> · ${roast}</p>`:''}
+    ${practiceMode?'':scTalkHTML(host)}
     <div class="sc-actions">
       ${host
         ?`<button class="btn lp-cta" data-a="start" type="button">Next Round${ARROW_SVG}</button>`
@@ -2389,6 +2459,7 @@ function table(){
 
   renderTopbarState();paintChat();paintCopied();
   showOver(G.phase==='over'?buildRoundOverModal(freshOver):G.phase==='invalid'?buildInvalidModal():'');
+  if(G.phase==='over')paintChat(); // fill the scorecard's Table talk now that it exists
   if(freshOver)countUp(document.getElementById('over'));
   layout(wide);
 }
