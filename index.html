@@ -349,7 +349,7 @@ ul.pl-list li{
 .hl{position:relative;flex:none;height:calc(var(--hw)*1.4 + 16px);padding-top:16px}
 .hl .card{--w:var(--hw);position:absolute;top:16px;cursor:pointer}
 .hl .card.ok{transform:translateY(-10px)}
-.hl .card.ok:hover{transform:translateY(-15px);z-index:95!important}
+.hl .card.ok:hover{transform:translateY(-15px);z-index:200!important}
 .hl .card.ok .face{
   border-color:var(--accent);
   box-shadow:0 0 0 2px var(--accent),0 6px 14px rgba(0,0,0,.45);
@@ -809,6 +809,11 @@ ul.pl-list li{
   transition:border-color .2s,box-shadow .2s,background .2s;
 }
 .lp-input input:hover{border-color:rgba(255,255,255,.18)}
+.lp-field.err .lp-input input,.lp-field.err .lp-input input:focus{border-color:#f87171;box-shadow:0 0 0 4px rgba(248,113,113,.18)}
+.lp-field.err .lp-input svg{fill:#f5a3a3}
+.lp-field.err{animation:lpShake .38s}
+@keyframes lpShake{20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
+@media (prefers-reduced-motion:reduce){.lp-field.err{animation:none}}
 .lp-input input:focus{border-color:var(--gold-2);background:rgba(6,12,10,.75);box-shadow:0 0 0 4px rgba(240,181,82,.16)}
 .lp-input:focus-within svg{fill:var(--gold-2)}
 .lp-input input#rm{
@@ -1319,7 +1324,11 @@ const use=(s,c='')=>`<svg class="${c}"><use href="#s${s}"/></svg>`;
 function getStore(k){
   try{
     if(k==='sevensT')return sessionStorage.getItem('sevensT')||localStorage.getItem('sevensT')||'';
-    if(k==='sevensN')return sessionStorage.getItem('sevensN')||localStorage.getItem('sevensN')||'';
+    if(k==='sevensN'){
+      // only ever the name the user typed; placeholder names saved by older builds read as blank
+      const n=(sessionStorage.getItem('sevensN')||localStorage.getItem('sevensN')||'').trim();
+      return /^(you|player)$/i.test(n)?'':n;
+    }
     return localStorage.getItem(k)||'';
   }catch(e){return ''}
 }
@@ -1476,8 +1485,9 @@ function pLegal(idx){return P_STATE.hands[idx].filter(pCanPlay)}
 function startPractice(playerName){
   const isNew=!practiceMode||!P_STATE.players.length;
   practiceMode=true;clearTimeout(practiceTimer);
-  const nm=(playerName||getStore('sevensN')||'You').trim().slice(0,14)||'You';
-  setStore('sevensN',nm);
+  const typed=String(playerName||'').trim().slice(0,14);
+  if(typed)setStore('sevensN',typed);
+  const nm=typed||'You';
   const names=[nm,'Aria (Bot)','Vikram (Bot)','Elena (Bot)'];
   const deck=[...Array(52).keys()];
   for(let i=51;i>0;i--){const j=(Math.random()*(i+1))|0;[deck[i],deck[j]]=[deck[j],deck[i]]}
@@ -1596,10 +1606,10 @@ function applyIncomingState(nextG){
 async function api(b){
   if(practiceMode){
     if(b.a==='play'&&P_STATE.turn===0&&pLegal(0).includes(b.id)){pPlay(0,b.id);return {}}
-    if(b.a==='start'){startPractice(getStore('sevensN'));return {}}
+    if(b.a==='start'){startPractice(P_STATE.players[0]&&P_STATE.players[0].name!=='You'?P_STATE.players[0].name:'');return {}}
     if(b.a==='resetscores'){
       P_STATE.round=0;P_STATE.players.forEach(p=>{p.score=0;p.roundPts=0;p.leftCards=[]});
-      toast('Scores reset to 0');startPractice(getStore('sevensN'));return {};
+      toast('Scores reset to 0');startPractice(P_STATE.players[0]&&P_STATE.players[0].name!=='You'?P_STATE.players[0].name:'');return {};
     }
     if(b.a==='chat'){
       const text=String(b.msg||'').trim().slice(0,160);
@@ -1641,7 +1651,7 @@ function connect(){
       T='';setStore('sevensT',null);G=null;lastSig='';
       if(rCode&&savedN){
         api({a:'join',name:savedN,room:rCode,cid:CID}).then(r=>{
-          if(r&&r.t){T=r.t;setStore('sevensT',T);if(r.name)setStore('sevensN',r.name);connect();}
+          if(r&&r.t){T=r.t;setStore('sevensT',T);connect();}
           else render();
         });
       }else render();
@@ -1651,7 +1661,15 @@ function connect(){
 
 async function join(){
   const nmEl=document.getElementById('nm');
-  const n=nmEl?nmEl.value.trim():'';if(n)setStore('sevensN',n);
+  const n=nmEl?nmEl.value.trim():'';
+  if(!n){
+    toast('Enter your name to take a seat');
+    const box=nmEl&&nmEl.closest('.lp-field');
+    if(box){box.classList.remove('err');void box.offsetWidth;box.classList.add('err')}
+    if(nmEl)nmEl.focus();
+    return;
+  }
+  setStore('sevensN',n);
   const room=((document.getElementById('rm')||{}).value||roomFromUrl()).trim();
   T='';
   const r=await api({a:'join',name:n,room,cid:CID});
@@ -1662,7 +1680,6 @@ async function join(){
   }
   if(r.err)return toast(r.err);
   T=r.t;setStore('sevensT',T);
-  if(r.name)setStore('sevensN',r.name);
   history.replaceState(null,'','?r='+r.room);connect();
 }
 
@@ -1936,6 +1953,7 @@ document.getElementById('chatForm').addEventListener('submit',e=>{
 
 // Dynamically update the login button text as the user types or clears the room code
 document.addEventListener('input',e=>{
+  if(e.target&&e.target.id==='nm'&&e.target.value.trim()){const f=e.target.closest('.lp-field');if(f)f.classList.remove('err')}
   if(e.target&&e.target.id==='rm'){
     const goBtn=document.getElementById('goLbl')||document.getElementById('go');
     if(goBtn)goBtn.textContent=e.target.value.trim()?'Join Table':'Open Table';
@@ -2389,7 +2407,8 @@ function fit(){
     const cs=[...line.children].filter(c=>c.classList.contains('card'));if(!cs.length)return;
     const av=line.clientWidth,w=cs[0].offsetWidth,n=cs.length,hand=line.dataset.fit==='h';
     const step=n>1?Math.min(w+(hand?10:6),(av-w)/(n-1)):0,off=hand?(av-((n-1)*step+w))/2:0;
-    cs.forEach((c,i)=>{c.style.left=off+i*step+'px';c.style.zIndex=i});
+    // playable cards sit above their unplayable neighbours so the highlight is never covered
+    cs.forEach((c,i)=>{c.style.left=off+i*step+'px';c.style.zIndex=(c.classList.contains('ok')?100:0)+i});
   });
 }
 
