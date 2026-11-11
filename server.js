@@ -69,6 +69,13 @@ function hit(key, max, windowMs) {
   return ++rec.count <= max;
 }
 const checkRate = (req, max = 80, windowMs = 10000) => hit(clientIp(req), max, windowMs);
+// Behind a proxy with TRUST_PROXY unset, every visitor would share one rate-limit bucket: say so once.
+let proxyWarned = false;
+function warnIfProxied(req) {
+  if (proxyWarned || TRUST_PROXY || !req.headers['x-forwarded-for']) return;
+  proxyWarned = true;
+  console.warn('Requests carry X-Forwarded-For but TRUST_PROXY is 0: all visitors share one rate limit. Set TRUST_PROXY=1 if this server is behind a reverse proxy.');
+}
 // Names and chat are shown to other players: drop control and bidi-override characters, collapse whitespace.
 const clean = s => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim();
 // Cards set aside so every hand is the same size: lowest rank first, one suit at a time
@@ -581,6 +588,14 @@ function scheduleIdle(S) {
   S.idle = setTimeout(() => { if (!S.players.some(x => x.on)) dropRoom(S); }, GRACE);
 }
 
+// What the joining client should draw straight away: the table as it will look once their stream connects.
+function joinedState(S, p) {
+  const st = view(S, p);
+  const me = st.players.find(q => q.id === p.id);
+  if (me) me.on = true;
+  if (!S.players.some(x => x.on)) st.host = p.id;
+  return st;
+}
 function join(b, ip) {
   const want = normRoom(b.room);
   const rec = b.t ? byToken.get(String(b.t)) : null;
@@ -592,7 +607,7 @@ function join(b, ip) {
   } else {
     if (rooms.size >= MAX_ROOMS) return { err: 'Too many tables right now. Try again in a minute.' };
     // one client must not be able to occupy every table slot
-    if (ip && !hit('new:' + ip, 8, 60000)) return { err: 'You are opening tables too quickly. Try again in a minute.' };
+    if (ip && !hit('new:' + ip, 30, 60000)) return { err: 'You are opening tables too quickly. Try again in a minute.' };
     S = makeRoom(newCode());
     rooms.set(S.code, S);
   }
@@ -638,7 +653,7 @@ function join(b, ip) {
         ex.bot = true; ex.deadline = 0; push(S);
       }
     }, JOIN_WAIT);
-    return { t: ex.t, room: S.code, name: ex.name };
+    return { t: ex.t, room: S.code, name: ex.name, state: joinedState(S, ex) };
   }
   if (S.players.length >= MAX) return { err: 'The table is full (' + MAX + ' players)' };
   let nm = base, k = 2;
@@ -656,7 +671,7 @@ function join(b, ip) {
   }, JOIN_WAIT);
   scheduleIdle(S);
   push(S);
-  return { t: p.t, room: S.code, name: p.name };
+  return { t: p.t, room: S.code, name: p.name, state: joinedState(S, p) };
 }
 
 function act(b, ip) {
@@ -822,6 +837,7 @@ function handle(req, res) {
     return push(S);
   }
   if (req.method === 'POST' && u.pathname === '/api') {
+    warnIfProxied(req);
     if (!checkRate(req, 60, 10000)) { res.setHeader('Retry-After', '10'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
     const ct = String(req.headers['content-type'] || '').toLowerCase();
     if (!ct.includes('application/json')) return json(res, 415, { err: 'Expected application/json' });
