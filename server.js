@@ -1,6 +1,6 @@
 'use strict';
 // Sevens – internet multiplayer. Rooms + share links. `node server.js` or any Node host.
-const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
+const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto'), zlib = require('zlib');
 const GRACE = +process.env.GRACE_MS || 30000, DEBOUNCE = +process.env.DEBOUNCE_MS || 1500; // 30s reconnect grace window
 const JOIN_WAIT = +process.env.JOIN_WAIT_MS || 20000;
 const INVALID_WAIT = +process.env.INVALID_WAIT_MS || 5000; // 5s wait when a round is invalidated (4 Kings)
@@ -8,18 +8,36 @@ const PORT = +process.env.PORT || 3000, MAX = 12, MAX_ROOMS = 80, H7 = 19; // ca
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
 const RK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'], SY = ['♠', '♥', '♦', '♣'];
 const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// Hops of trusted reverse proxy in front of this process (0 = none: use the socket address).
+// Needed behind a proxy/PaaS, or every visitor shares one rate-limit bucket.
+const TRUST_PROXY = Math.max(0, parseInt(process.env.TRUST_PROXY, 10) || 0);
+const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
+
+// index.html is immutable for the life of the process: compress once, serve with an ETag.
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'));
+const INDEX_BR = zlib.brotliCompressSync(INDEX_HTML, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } });
+const INDEX_GZ = zlib.gzipSync(INDEX_HTML, { level: 9 });
+const INDEX_ETAG = '"' + crypto.createHash('sha256').update(INDEX_HTML).digest('base64url').slice(0, 22) + '"';
+// CSP: only the page's own inline <script> may run (pinned by hash), so injected markup can never execute.
+// Styles stay 'unsafe-inline' because the client sets style="" attributes.
+const SCRIPT_HASHES = [...INDEX_HTML.toString('utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)]
+  .map(m => "'sha256-" + crypto.createHash('sha256').update(m[1].replace(/\r\n?/g, '\n')).digest('base64') + "'");
 const SEC_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'"
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' " + (SCRIPT_HASHES.length ? SCRIPT_HASHES.join(' ') : "'unsafe-inline'")
+    + "; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 };
+if (PUBLIC_ORIGIN.startsWith('https://')) SEC_HEADERS['Strict-Transport-Security'] = 'max-age=31536000';
 
 const rooms = new Map(); // code -> table
 const byToken = new Map(); // token -> { S, p }
 const conns = new Map(); // token -> Set(res)
-const rateMap = new Map(); // ip -> { count, resetAt }
+const rateMap = new Map(); // key -> { count, resetAt }
 
 const cardName = id => RK[id % 13 + 1] + SY[id / 13 | 0];
 const cardPts = id => (id % 13) + 1; // A=1, 2..10=2..10, J=11, Q=12, K=13
@@ -29,15 +47,36 @@ const active = p => !p.spectator && !p.done;
 const hostId = S => { const h = S.players.find(p => p.on) || S.players[0]; return h ? h.id : null; };
 const normRoom = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 
-function checkRate(req, max = 80, windowMs = 10000) {
-  const ip = req.socket.remoteAddress || 'local';
+function clientIp(req) {
+  if (TRUST_PROXY) {
+    const xf = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (xf.length) return xf[Math.max(0, xf.length - TRUST_PROXY)]; // the entry our own proxy appended
+  }
+  return req.socket.remoteAddress || 'local';
+}
+// Fixed-window counter. Keys are client IPs (optionally prefixed per purpose).
+function hit(key, max, windowMs) {
   const now = Date.now();
-  let rec = rateMap.get(ip);
+  let rec = rateMap.get(key);
   if (!rec || now > rec.resetAt) {
+    if (!rec && rateMap.size >= RATE_KEYS_MAX) {
+      for (const [k, r] of rateMap) if (now > r.resetAt) rateMap.delete(k);
+      if (rateMap.size >= RATE_KEYS_MAX) return false; // under a key flood, fail closed instead of growing
+    }
     rec = { count: 0, resetAt: now + windowMs };
-    rateMap.set(ip, rec);
+    rateMap.set(key, rec);
   }
   return ++rec.count <= max;
+}
+const checkRate = (req, max = 80, windowMs = 10000) => hit(clientIp(req), max, windowMs);
+// Names and chat are shown to other players: drop control and bidi-override characters, collapse whitespace.
+const clean = s => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim();
+// Cards set aside so every hand is the same size: lowest rank first, one suit at a time
+// (A♠ A♥ A♦ A♣, then 2♠ 2♥ …) until the deck divides evenly. At most 8 cards (11 players).
+function removedFor(n) {
+  const out = [];
+  for (let i = 0, k = n > 0 ? 52 % n : 0; i < k; i++) out.push((i % 4) * 13 + (i / 4 | 0));
+  return out;
 }
 
 function newCode() {
@@ -47,7 +86,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [] };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -94,7 +133,8 @@ function findWaitingPlayer(S) {
   return S.players.find(q => active(q) && !q.on && !q.bot && q.deadline > Date.now()) || null;
 }
 
-function view(S, p) {
+// The part of the state every seat sees. Built and serialised once per push, not once per player.
+function commonView(S) {
   const cur = S.turn >= 0 ? S.players[S.turn] : null;
   const wp = findWaitingPlayer(S);
   const wait = wp ? { name: wp.name, left: Math.max(0, Math.ceil((wp.deadline - Date.now()) / 1000)) } : null;
@@ -102,7 +142,7 @@ function view(S, p) {
     ? { name: S.invalidated.name, canDeal: !!S.invalidated.canDeal, left: Math.max(0, Math.ceil((S.invalidated.until - Date.now()) / 1000)) }
     : null;
   return {
-    phase: S.phase, round: S.round || 0, you: p.id, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
+    phase: S.phase, round: S.round || 0, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
     players: S.players.map(q => ({
       id: q.id, name: q.name, n: q.hand.length, on: q.on, bot: !!q.bot,
       place: q.place, spec: q.spectator,
@@ -110,10 +150,24 @@ function view(S, p) {
       roundPts: q.roundPts || 0,
       leftCards: S.phase === 'over' ? (q.leftCards || []) : []
     })),
-    board: S.board, turn: cur ? cur.id : null, hand: p.hand, legal: S.phase === 'playing' && cur === p ? legal(S, p) : [],
-    last: S.last, log: S.log.slice(-5), spec: p.spectator, place: p.place,
+    board: S.board, turn: cur ? cur.id : null, removed: S.removed || [],
+    last: S.last, log: S.log.slice(-5),
     chat: S.chat.slice(-40), alerts: S.alerts, wait, invalid: inv
   };
+}
+// The private part: never contains another player's cards.
+function ownView(S, p) {
+  const mine = S.phase === 'playing' && S.turn >= 0 && S.players[S.turn] === p;
+  return { you: p.id, hand: p.hand, legal: mine ? legal(S, p) : [], spec: p.spectator, place: p.place };
+}
+function view(S, p) { return { ...ownView(S, p), ...commonView(S) }; }
+
+function sseWrite(res, payload) {
+  try {
+    // a client that stopped reading must not make the server buffer forever
+    if (res.writableLength > SSE_MAX_BUFFER) { res.destroy(); return; }
+    res.write(payload);
+  } catch (e) {}
 }
 
 function push(S) {
@@ -123,11 +177,13 @@ function push(S) {
       advance(S);
     }
   }
+  let common = '';
   for (const p of S.players) {
-    const payload = 'data: ' + JSON.stringify(view(S, p)) + '\n\n';
-    for (const res of conns.get(p.t) || []) {
-      try { res.write(payload); } catch (e) {}
-    }
+    const set = conns.get(p.t);
+    if (!set || !set.size) continue;
+    if (!common) common = JSON.stringify(commonView(S)).slice(1);
+    const payload = 'data: ' + JSON.stringify(ownView(S, p)).slice(0, -1) + ',' + common + '\n\n';
+    for (const res of set) sseWrite(res, payload);
   }
   if (S.phase === 'invalid' && S.invalidated && !S.invalidated.canDeal) {
     const delay = Math.max(50, S.invalidated.until - Date.now());
@@ -176,6 +232,18 @@ function notify(S, msg, kind = '') {
 // ============ Bot: Traps opponents with high-point cards (8..K) while shedding its own heavy cards ============
 const BOT_MS = +process.env.BOT_MS || 50;
 const OWN = Array.from({ length: Math.max(16, MAX + 4) }, () => new Uint8Array(52)), TMP = [];
+// Cards set aside for the current deal (not in anyone's hand). Set by botChoose/heurChoose; all bot code is synchronous.
+const GONE = new Uint8Array(52);
+function setGone(removed) { GONE.fill(0); if (removed) for (const c of removed) GONE[c] = 1; }
+// Bot search runs on the event loop, so its total cost is capped: every table's bots together may
+// spend at most BOT_SHARE_MS of each second thinking. Under load they think less instead of stalling players.
+const BOT_SHARE_MS = +process.env.BOT_SHARE_MS || 300;
+let botWindow = 0, botSpent = 0;
+function botBudget() {
+  const now = Date.now();
+  if (now - botWindow >= 1000) { botWindow = now; botSpent = 0; }
+  return Math.max(2, Math.min(BOT_MS, BOT_SHARE_MS - botSpent));
+}
 
 function evalMove(id, own, lo, hi) {
   const s = (id / 13) | 0, r = id - s * 13 + 1, base = s * 13;
@@ -185,6 +253,7 @@ function evalMove(id, own, lo, hi) {
     else oppAbovePts += rk;
   }
   for (let rk = 1; rk < r; rk++) {
+    if (GONE[base + rk - 1]) continue; // set aside: nobody holds it
     if (own[base + rk - 1]) myBelowPts += rk;
     else oppBelowPts += rk;
   }
@@ -308,14 +377,15 @@ function botChoose(o) {
   const { hand, board, seats, me } = o, budget = o.budgetMs == null ? BOT_MS : o.budgetMs;
   const [lo, hi] = boardArrays(board), moves = movesFor(hand, lo, hi);
   if (moves.length <= 1) return moves[0];
-  const seen = new Uint8Array(52); hand.forEach(id => { seen[id] = 1; });
+  setGone(o.removed);
+  const seen = Uint8Array.from(GONE); hand.forEach(id => { seen[id] = 1; });
   for (let s = 0; s < 4; s++) if (board[s]) for (let r = lo[s]; r <= hi[s]; r++) seen[s * 13 + r - 1] = 1;
   const unseen = []; for (let id = 0; id < 52; id++) if (!seen[id]) unseen.push(id);
   const m0 = seats.filter(x => x.n > 0).length, vals = new Float64Array(moves.length);
   let samples = 0; const t0 = Date.now();
   for (;;) {
     const base = sampleHands(unseen, seats, me, hand);
-    if (!base) return heurChoose(hand, board);
+    if (!base) return heurChoose(hand, board, o.removed);
     for (let m = 0; m < moves.length; m++) {
       const hands = base.map(h => h.slice()), h = hands[me], l2 = lo.slice(), h2 = hi.slice();
       h.splice(h.indexOf(moves[m]), 1); applyCard(l2, h2, moves[m]);
@@ -327,7 +397,8 @@ function botChoose(o) {
   let bi = 0; for (let m = 1; m < moves.length; m++) if (vals[m] > vals[bi]) bi = m;
   return moves[bi];
 }
-function heurChoose(hand, board) {
+function heurChoose(hand, board, removed) {
+  setGone(removed);
   const [lo, hi] = boardArrays(board), own = new Uint8Array(52); hand.forEach(id => { own[id] = 1; });
   return heurPick(hand, own, lo, hi, 0);
 }
@@ -335,7 +406,9 @@ function botMove(S, p, l) {
   if (l.length === 1) return l[0];
   try {
     const seats = S.players.map(q => ({ n: active(q) ? q.hand.length : 0, void: q.void || new Set() }));
-    const id = botChoose({ hand: p.hand, board: S.board, seats, me: S.players.indexOf(p) });
+    const t0 = Date.now();
+    const id = botChoose({ hand: p.hand, board: S.board, seats, me: S.players.indexOf(p), removed: S.removed, budgetMs: botBudget() });
+    botSpent += Date.now() - t0;
     return l.includes(id) ? id : l[crypto.randomInt(l.length)];
   } catch (e) { return l[crypto.randomInt(l.length)]; }
 }
@@ -440,6 +513,10 @@ function start(S) {
     p.score = p.score || 0; p.roundPts = 0; p.leftCards = [];
     p.lastThreeAlerted = false;
   });
+  // Equal hands: when 52 doesn't divide by the player count, the lowest cards are set aside.
+  S.removed = removedFor(n);
+  if (S.removed.length) { const gone = new Set(S.removed); deck = deck.filter(c => !gone.has(c)); }
+  const each = deck.length / n;
   deck.forEach((c, i) => S.players[i % n].hand.push(c));
   S.players.forEach(p => p.hand.sort((a, b) => a - b));
   S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.log = [];
@@ -461,7 +538,8 @@ function start(S) {
 
   S.round = (S.round || 0) + 1;
   S.turn = S.players.findIndex(p => p.hand.includes(H7)); S.phase = 'playing';
-  addLog(S, 'Round ' + S.round + ' dealt to ' + n + ' players. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
+  addLog(S, 'Round ' + S.round + ' dealt: ' + each + ' cards each. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
+  if (S.removed.length) addChat(S, '', 'Round ' + S.round + ': ' + S.removed.map(cardName).join(' ') + ' set aside so all ' + n + ' players hold ' + each + ' cards.', true);
   maybeLastThree(S);
   push(S); return {};
 }
@@ -503,7 +581,7 @@ function scheduleIdle(S) {
   S.idle = setTimeout(() => { if (!S.players.some(x => x.on)) dropRoom(S); }, GRACE);
 }
 
-function join(b) {
+function join(b, ip) {
   const want = normRoom(b.room);
   const rec = b.t ? byToken.get(String(b.t)) : null;
   if (rec && (!want || rec.S.code === want)) return { t: rec.p.t, room: rec.S.code, name: rec.p.name };
@@ -513,10 +591,12 @@ function join(b) {
     if (!S) return { err: 'No table with that code. Check the link, or leave the code blank to start a new table.' };
   } else {
     if (rooms.size >= MAX_ROOMS) return { err: 'Too many tables right now. Try again in a minute.' };
+    // one client must not be able to occupy every table slot
+    if (ip && !hit('new:' + ip, 8, 60000)) return { err: 'You are opening tables too quickly. Try again in a minute.' };
     S = makeRoom(newCode());
     rooms.set(S.code, S);
   }
-  const rawName = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  const rawName = clean(b.name).slice(0, 14).trim();
   const base = rawName || 'Player';
   const root = base.replace(/\s+\d+$/, '').trim() || 'Player';
   const baseKey = root.toLowerCase();
@@ -579,9 +659,9 @@ function join(b) {
   return { t: p.t, room: S.code, name: p.name };
 }
 
-function act(b) {
-  if (!b || typeof b !== 'object') return { err: 'Bad request' };
-  if (b.a === 'join') return join(b);
+function act(b, ip) {
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return { err: 'Bad request' };
+  if (b.a === 'join') return join(b, ip);
   const rec = b.t ? byToken.get(String(b.t)) : null;
   if (!rec) return { err: 'Not joined' };
   const { S, p } = rec;
@@ -648,7 +728,7 @@ function act(b) {
     return {};
   }
   if (b.a === 'chat') {
-    const text = String(b.msg || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    const text = clean(b.msg).slice(0, 160).trim();
     if (!text) return { err: 'Type a message first', state: view(S, p) };
     const now = Date.now();
     if (p.chatAt && now - p.chatAt < 400) return { err: 'Wait a moment before sending again', state: view(S, p) };
@@ -658,123 +738,160 @@ function act(b) {
   return { err: 'Unknown action' };
 }
 
-function createAppServer() {
-  return http.createServer((req, res) => {
-    const u = new URL(req.url, 'http://localhost');
-    if (req.method === 'GET' && (u.pathname === '/' || u.pathname === '/index.html')) {
-      res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(INDEX_HTML);
+function json(res, status, obj) {
+  res.writeHead(status, { ...SEC_HEADERS, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(obj));
+}
+
+function handle(req, res) {
+  let u;
+  try { u = new URL(req.url, 'http://localhost'); } catch (e) { res.writeHead(400, SEC_HEADERS); return res.end(); }
+  if ((req.method === 'GET' || req.method === 'HEAD') && (u.pathname === '/' || u.pathname === '/index.html')) {
+    const head = { ...SEC_HEADERS, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ETag: INDEX_ETAG, Vary: 'Accept-Encoding' };
+    if (req.headers['if-none-match'] === INDEX_ETAG) { res.writeHead(304, head); return res.end(); }
+    const ae = String(req.headers['accept-encoding'] || '');
+    let body = INDEX_HTML;
+    if (/\bbr\b/.test(ae)) { body = INDEX_BR; head['Content-Encoding'] = 'br'; }
+    else if (/\bgzip\b/.test(ae)) { body = INDEX_GZ; head['Content-Encoding'] = 'gzip'; }
+    head['Content-Length'] = body.length;
+    res.writeHead(200, head);
+    return res.end(req.method === 'HEAD' ? undefined : body);
+  }
+  if (req.method === 'GET' && u.pathname === '/health') {
+    res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+    return res.end('ok');
+  }
+  if (req.method === 'GET' && u.pathname === '/events') {
+    if (!checkRate(req, 80, 10000)) { res.writeHead(429, { ...SEC_HEADERS, 'Retry-After': '10' }); return res.end(); }
+    const token = u.searchParams.get('t') || '';
+    const rec = byToken.get(token);
+    if (!rec) { res.writeHead(404, SEC_HEADERS); return res.end(); }
+    const { S, p } = rec;
+    res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    req.socket.setNoDelay(true);
+    res.on('error', () => {});
+    res.write('retry: 1500\n\n');
+    if (!conns.has(p.t)) conns.set(p.t, new Set());
+    const streams = conns.get(p.t);
+    streams.add(res);
+    // a token can only hold a few streams (tabs); the oldest is closed first
+    while (streams.size > SSE_PER_TOKEN) { const old = streams.values().next().value; streams.delete(old); old.destroy(); }
+    const was = !p.on;
+    p.on = true; p.left = false; p.bot = false; p.deadline = 0;
+    clearTimeout(S.idle); clearTimeout(p.dtimer); clearTimeout(p.btimer);
+    if (!p.joinedOnce) {
+      p.joinedOnce = true;
+      addChat(S, '', p.name + ' joined the table.', true, 'join');
+    } else if (was && (p.announced || p.rejoining)) {
+      p.announced = false;
+      p.rejoining = false;
+      notify(S, p.name + ' rejoined the game' + (S.phase === 'playing' && p.hand.length ? ' (' + p.hand.length + ' cards)' : '') + '.', 'join');
     }
-    if (req.method === 'GET' && u.pathname === '/health') {
-      res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'text/plain' });
-      return res.end('ok');
-    }
-    if (req.method === 'GET' && u.pathname === '/events') {
-      if (!checkRate(req, 80, 10000)) { res.writeHead(429, SEC_HEADERS); return res.end(); }
-      const token = u.searchParams.get('t') || '';
-      const rec = byToken.get(token);
-      if (!rec) { res.writeHead(404, SEC_HEADERS); return res.end(); }
-      const { S, p } = rec;
-      res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-      res.write('retry: 1500\n\n');
-      if (!conns.has(p.t)) conns.set(p.t, new Set());
-      conns.get(p.t).add(res);
-      const was = !p.on;
-      p.on = true; p.left = false; p.bot = false; p.deadline = 0;
-      clearTimeout(S.idle); clearTimeout(p.dtimer); clearTimeout(p.btimer);
-      if (!p.joinedOnce) {
-        p.joinedOnce = true;
-        addChat(S, '', p.name + ' joined the table.', true, 'join');
-      } else if (was && (p.announced || p.rejoining)) {
-        p.announced = false;
-        p.rejoining = false;
-        notify(S, p.name + ' rejoined the game' + (S.phase === 'playing' && p.hand.length ? ' (' + p.hand.length + ' cards)' : '') + '.', 'join');
-      }
-      res.on('close', () => {
-        const set = conns.get(token); if (set) set.delete(res);
-        if (set && set.size) return;
-        const cur = byToken.get(token); if (!cur || cur.p !== p || p.left) return;
-        p.on = false;
-        if (S.phase !== 'playing') {
-          p.dtimer = setTimeout(() => {
-            if (!p.on && S.phase !== 'playing' && rooms.get(S.code) === S) {
-              addChat(S, '', p.name + ' left the table.', true, 'leave');
-              forgetPlayer(S, p);
-              if (S.players.length) push(S);
-              scheduleIdle(S);
-            }
-          }, 20000);
-        } else if (!p.spectator && !p.done) {
-          p.deadline = Date.now() + GRACE;
-          p.dtimer = setTimeout(() => {
-            if (p.on || p.left || p.bot) return;
-            p.announced = true;
-            notify(S, p.name + ' lost connection. Waiting ' + Math.round(GRACE / 1000) + 's for them to come back.', 'leave');
-            push(S);
-          }, DEBOUNCE);
-          p.btimer = setTimeout(() => {
-            if (p.on || !rooms.has(S.code)) return;
-            p.bot = true; p.deadline = 0;
-            notify(S, p.name + ' didn\u2019t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards. They can still rejoin.', 'leave');
-            push(S);
-          }, GRACE);
-        }
-        scheduleIdle(S);
-        if (rooms.get(S.code) === S) push(S);
-      });
-      return push(S);
-    }
-    if (req.method === 'POST' && u.pathname === '/api') {
-      if (!checkRate(req, 60, 10000)) {
-        res.writeHead(429, { ...SEC_HEADERS, 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ err: 'Too many requests. Please slow down.' }));
-      }
-      const ct = String(req.headers['content-type'] || '').toLowerCase();
-      if (!ct.includes('application/json')) {
-        res.writeHead(415, { ...SEC_HEADERS, 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ err: 'Expected application/json' }));
-      }
-      const origin = req.headers.origin;
-      if (origin && req.headers.host) {
-        try {
-          if (new URL(origin).host !== req.headers.host) {
-            res.writeHead(403, { ...SEC_HEADERS, 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ err: 'Cross-origin request blocked' }));
+    res.on('close', () => {
+      const set = conns.get(token); if (set) set.delete(res);
+      if (set && set.size) return;
+      const cur = byToken.get(token); if (!cur || cur.p !== p || p.left) return;
+      p.on = false;
+      if (S.phase !== 'playing') {
+        p.dtimer = setTimeout(() => {
+          if (!p.on && S.phase !== 'playing' && rooms.get(S.code) === S) {
+            addChat(S, '', p.name + ' left the table.', true, 'leave');
+            forgetPlayer(S, p);
+            if (S.players.length) push(S);
+            scheduleIdle(S);
           }
-        } catch (e) {
-          res.writeHead(400, { ...SEC_HEADERS, 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ err: 'Invalid origin' }));
-        }
+        }, 20000);
+      } else if (!p.spectator && !p.done) {
+        p.deadline = Date.now() + GRACE;
+        p.dtimer = setTimeout(() => {
+          if (p.on || p.left || p.bot) return;
+          p.announced = true;
+          notify(S, p.name + ' lost connection. Waiting ' + Math.round(GRACE / 1000) + 's for them to come back.', 'leave');
+          push(S);
+        }, DEBOUNCE);
+        p.btimer = setTimeout(() => {
+          if (p.on || !rooms.has(S.code)) return;
+          p.bot = true; p.deadline = 0;
+          notify(S, p.name + ' didn\u2019t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards. They can still rejoin.', 'leave');
+          push(S);
+        }, GRACE);
       }
-      let body = '', aborted = false;
-      req.on('data', c => {
-        body += c;
-        if (body.length > 2000) { aborted = true; req.destroy(); }
-      });
-      req.on('end', () => {
-        if (aborted) return;
-        let out;
-        try { out = act(JSON.parse(body)); } catch (e) { out = { err: 'Bad request' }; }
-        res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(out));
-      });
-      return;
+      scheduleIdle(S);
+      if (rooms.get(S.code) === S) push(S);
+    });
+    return push(S);
+  }
+  if (req.method === 'POST' && u.pathname === '/api') {
+    if (!checkRate(req, 60, 10000)) { res.setHeader('Retry-After', '10'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
+    const ct = String(req.headers['content-type'] || '').toLowerCase();
+    if (!ct.includes('application/json')) return json(res, 415, { err: 'Expected application/json' });
+    const origin = req.headers.origin;
+    if (origin && req.headers.host) {
+      try {
+        if (new URL(origin).host !== req.headers.host) return json(res, 403, { err: 'Cross-origin request blocked' });
+      } catch (e) {
+        return json(res, 400, { err: 'Invalid origin' });
+      }
     }
-    res.writeHead(404, SEC_HEADERS); res.end();
+    if (+req.headers['content-length'] > BODY_MAX) { res.setHeader('Connection', 'close'); return json(res, 413, { err: 'Request too large' }); }
+    const ip = clientIp(req);
+    let body = '', aborted = false;
+    req.setEncoding('utf8');
+    req.on('error', () => { aborted = true; });
+    req.on('data', c => {
+      body += c;
+      if (body.length > BODY_MAX) { aborted = true; req.destroy(); }
+    });
+    req.on('end', () => {
+      if (aborted) return;
+      let out;
+      try { out = act(JSON.parse(body), ip); } catch (e) { out = { err: 'Bad request' }; }
+      json(res, 200, out);
+    });
+    return;
+  }
+  res.writeHead(404, SEC_HEADERS); res.end();
+}
+
+function createAppServer() {
+  const server = http.createServer((req, res) => {
+    // a bug in one request must never take every table down with it
+    try { handle(req, res); } catch (e) {
+      console.error('request failed:', e);
+      try { if (!res.headersSent) res.writeHead(500, SEC_HEADERS); res.end(); } catch (e2) {}
+    }
   });
+  // slow or stalled clients are cut off (these only cover receiving a request; SSE responses stay open)
+  server.headersTimeout = 10000;
+  server.requestTimeout = 15000;
+  server.keepAliveTimeout = 65000; // longer than typical proxy idle timeouts, so the proxy closes first
+  server.maxHeadersCount = 64;
+  server.on('clientError', (err, socket) => { if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); else socket.destroy(); });
+  return server;
 }
 
 if (require.main === module) {
-  createAppServer().listen(PORT, '0.0.0.0', () => {
+  const server = createAppServer();
+  server.listen(PORT, '0.0.0.0', () => {
     console.log('\n  SEVENS is on the internet. Open:\n');
     console.log('    http://localhost:' + PORT);
     console.log('\n  Share the table link shown in the lobby (/?r=CODE). Empty rooms close after 1 minute.\n');
   });
-  setInterval(() => {
-    for (const set of conns.values()) for (const r of set) r.write(': hb\n\n');
+  const beat = setInterval(() => {
+    for (const set of conns.values()) for (const r of set) sseWrite(r, ': hb\n\n');
     const now = Date.now();
-    for (const [ip, rec] of rateMap) if (now > rec.resetAt) rateMap.delete(ip);
+    for (const [key, rec] of rateMap) if (now > rec.resetAt) rateMap.delete(key);
   }, 15000);
+  // All state is in memory: log unexpected errors and keep serving rather than dropping every game.
+  process.on('uncaughtException', e => console.error('uncaught:', e));
+  process.on('unhandledRejection', e => console.error('unhandled rejection:', e));
+  const shutdown = () => {
+    clearInterval(beat);
+    for (const set of conns.values()) for (const r of set) try { r.end(); } catch (e) {}
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  };
+  process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 }
 
-module.exports = { botChoose, heurChoose, evalMove, cardPts, handPts, hasFourKings, canFinishInThree, createAppServer, rooms, byToken, GRACE, INVALID_WAIT };
+module.exports = { removedFor,  botChoose, heurChoose, evalMove, cardPts, handPts, hasFourKings, canFinishInThree, createAppServer, rooms, byToken, GRACE, INVALID_WAIT };
