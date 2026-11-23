@@ -259,7 +259,13 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 @keyframes turnRing{50%{box-shadow:0 0 0 5px rgba(var(--gold-rgb),.2),0 6px 18px rgba(0,0,0,.35)}}
 .pl.turn .pl-name{color:var(--gold-1)}
 .pl.turn .pl-dot{background:var(--gold-2)}
-.pl.aside{gap:4px;padding:3px 8px 3px 10px;border-style:dashed}
+.pl.aside{gap:4px;padding:3px 8px 3px 10px;border-style:dashed;border-color:rgba(var(--gold-rgb),.4);background:rgba(var(--gold-rgb),.06)}
+.pl.aside .pl-meta{color:var(--gold-dim);font-weight:600}
+/* set-aside ranks on a suit row: struck through; gold once the run has reached them (that end is complete) */
+.suit-out{flex:none;min-width:18px;padding:2px 4px;border-radius:5px;border:1px dashed rgba(255,255,255,.22);
+  font:700 10px/1 var(--sans);text-align:center;color:var(--faint);text-decoration:line-through}
+.suit-out.spacer{visibility:hidden}
+.suit-out.done{border-style:solid;border-color:rgba(var(--gold-rgb),.5);color:var(--gold-1);text-decoration:none;background:rgba(var(--gold-rgb),.1)}
 .pl.aside .mini-card{padding:1px 4px;font-size:10.5px;box-shadow:none}
 .pl.aside .mini-card small{display:none}
 .pl.off{opacity:.72;border-color:rgba(var(--danger-rgb),.35)}
@@ -1488,6 +1494,8 @@ function applyIncomingState(nextG){
     else if(alerts.length&&alerts[alerts.length-1].id<lastAlert)lastAlert=alerts[alerts.length-1].id;
   }
   if(G.last>=0&&G.last!==prevLast)sfx('card');
+  passIfAway();
+  announceSetAside();
   const sig=stateSig(G);
   if(sig===lastSig){paintChat();return}
   lastSig=sig;
@@ -1524,7 +1532,12 @@ async function api(b){
     return {};
   }
   try{
-    const r=await fetch('/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:T,...b})});
+    const send=()=>fetch('/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:T,...b})});
+    let r=await send();
+    if(r.status===429){ // briefly over the limit: wait as asked (at most 3s) and try once more; replays are safe
+      await new Promise(ok=>setTimeout(ok,Math.min(3000,(+r.headers.get('Retry-After')||1)*1000)));
+      r=await send();
+    }
     const out=await r.json();
     if(out&&out.state){
       applyIncomingState(out.state);
@@ -1583,7 +1596,8 @@ async function recoverSeat(){
   // a known token comes straight back; otherwise the server matches us to our seat by client id and name
   const r=await api({a:'join',t:old,room,name,cid:CID});
   if(r&&r.t){T=r.t;setStore('sevensT',T);connect();return}
-  if(r&&r.err==='offline'){T=old;setTimeout(recoverSeat,Math.min(10000,1000*2**recoverTries++));return} // server asleep or restarting
+  // server asleep or restarting, or briefly rate limited: the seat is still ours, try again shortly
+  if(r&&(r.err==='offline'||/Too many/.test(r.err||''))){T=old;setTimeout(recoverSeat,Math.min(10000,1000*2**recoverTries++));return}
   forgetSeat();
   // tables live in server memory, so a restart (a deploy, or a free host waking from sleep) closes them
   if(r&&r.err)toast(/^No table/.test(r.err)?'That table has closed. Open a new one to keep playing.':r.err);
@@ -2466,7 +2480,13 @@ function table(){
   const board=[0,1,2,3].map(s=>{const b=G.board[s];let cs='';
     if(b)for(let r=b[0];r<=b[1];r++){const id=s*13+r-1;cs+=card(id,id===G.last?'last':'')}
     else cs=`<div class="slot">${use(s)}<span>7</span></div>`;
-    return `<div class="suit">${use(s,'lab '+(isRed(s)?'red':''))}<div class="line" data-fit="b">${cs}</div></div>`}).join('');
+    // this suit's set-aside cards (A, maybe 2): its run stops above them, so say so on the row itself
+    const out=(G.removed||[]).filter(c=>(c/13|0)===s).map(c=>c%13+1).sort((x,y)=>x-y);
+    const lowDone=b&&out.length&&b[0]===out[out.length-1]+1;
+    // rows without set-aside cards get an invisible spacer, so every suit's cards start in the same column
+    const tag=out.length?`<span class="suit-out${lowDone?' done':''}" title="${out.map(r=>RK[r]+SYM[s]).join(' ')} set aside this round${lowDone?': this end is complete':''}">${out.map(r=>RK[r]).join('')}</span>`
+      :(G.removed||[]).length?`<span class="suit-out spacer" aria-hidden="true">${(G.removed||[]).filter(c=>(c/13|0)===0).length>1?'A2':'A'}</span>`:'';
+    return `<div class="suit">${use(s,'lab '+(isRed(s)?'red':''))}${tag}<div class="line" data-fit="b">${cs}</div></div>`}).join('');
 
   // chips show cards only; points stay hidden until the game's final results
   const chips=G.players.map(q=>{
@@ -2492,7 +2512,7 @@ function table(){
   app.innerHTML=`${topbarHTML()}
   <div class="workspace">
     <div class="table-col">
-      <div class="players">${chips}${(G.removed||[]).length?`<div class="pl aside" title="Set aside this round so every hand is the same size"><span class="pl-meta">Set aside</span>${G.removed.map(c=>miniCardBadge(c)).join('')}</div>`:''}</div>
+      <div class="players">${(G.removed||[]).length?`<div class="pl aside" title="Not dealt this round, so every hand is the same size"><span class="pl-meta">Not in play</span>${G.removed.map(c=>miniCardBadge(c)).join('')}</div>`:''}${chips}</div>
       <div class="board"><div class="bi ${wide?'w':''}">${board}</div></div>
       <div class="banner ${cls}">
         <span id="bt">${msg}</span>${passBtn()}${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait" type="button">Skip wait</button>':''}
@@ -2556,8 +2576,25 @@ setInterval(()=>{
   }
 },200);
 async function keepAwake(){try{if(G&&G.phase==='playing'&&'wakeLock' in navigator&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}catch(e){}}
+// The equal-deal rule sets the lowest cards aside; say so plainly at each fresh deal, or players think cards are missing.
+let asideToldKey='';
+function announceSetAside(){
+  if(!G||practiceMode||G.phase!=='playing'||!(G.removed||[]).length||G.board.some(b=>b))return;
+  const k=G.room+':'+G.round;if(k===asideToldKey)return;asideToldKey=k;
+  const seated=G.players.filter(p=>!p.spec).length||1,each=Math.round((52-G.removed.length)/seated);
+  queueAlerts([`${G.removed.map(cardLabel).join(' ')} set aside this round so everyone gets ${each} cards`]);
+}
+// A phone in a pocket can't tap Pass: when it's our turn, nothing is playable and the page is hidden,
+// pass straight away rather than make the whole table wait out the countdown.
+let awayPassKey='';
+function passIfAway(){
+  if(!G||practiceMode||!document.hidden||G.phase!=='playing'||G.turn!==G.you||(G.legal||[]).length)return;
+  const k=JSON.stringify([G.room,G.round,G.board,G.last,G.log&&G.log[G.log.length-1]]);
+  if(k===awayPassKey)return; // once per turn
+  awayPassKey=k;passUntil=0;api({a:'pass'});
+}
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState!=='visible')return;
+  if(document.visibilityState!=='visible')return passIfAway();
   if(T&&!practiceMode&&(!es||es.readyState!==1))connect();
   keepAwake();
 });

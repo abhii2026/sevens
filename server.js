@@ -22,6 +22,11 @@ const CLIENT_IP_HEADER = String(env('CLIENT_IP_HEADER', ON_RENDER ? 'cf-connecti
 const FORCE_HTTPS = env('FORCE_HTTPS', PUBLIC_ORIGIN.startsWith('https://') && TRUST_PROXY ? '1' : '0') === '1' && PUBLIC_ORIGIN.startsWith('https://');
 // A connected player with no playable card gets PASS_MS to press Pass before it happens for them.
 const PASS_MS = +process.env.PASS_MS || 5000, AUTO_PASS_MS = 1200;
+// When it's a disconnected player's turn, the table waits this long, then a bot makes just that move.
+// They keep their seat; GRACE still decides when a bot takes over for good.
+const TURN_WAIT = +process.env.TURN_WAIT_MS || 10000;
+// requests per 10s: per seat (token) for game actions, and per address as a flood guard
+const SEAT_MAX = 60, IP_FLOOD_MAX = 300;
 const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
 
 // index.html is immutable for the life of the process: compress once, serve with an ETag.
@@ -162,7 +167,9 @@ function findWaitingPlayer(S) {
 function commonView(S) {
   const cur = S.turn >= 0 ? S.players[S.turn] : null;
   const wp = findWaitingPlayer(S);
-  const wait = wp ? { name: wp.name, left: Math.max(0, Math.ceil((wp.deadline - Date.now()) / 1000)) } : null;
+  // on their own turn the table only waits TURN_WAIT for them, so count down to whichever comes first
+  const until = wp ? (wp === cur ? Math.min(wp.deadline, awayDue(S, wp).at) : wp.deadline) : 0;
+  const wait = wp ? { name: wp.name, left: Math.max(0, Math.ceil((until - Date.now()) / 1000)) } : null;
   const inv = S.phase === 'invalid' && S.invalidated
     ? { name: S.invalidated.name, canDeal: !!S.invalidated.canDeal, left: Math.max(0, Math.ceil((S.invalidated.until - Date.now()) / 1000)) }
     : null;
@@ -228,8 +235,17 @@ function push(S) {
   if (S.phase !== 'playing' || !S.players.some(x => x.on)) return; // nobody connected: freeze the table
   const p = S.players[S.turn];
   if (!p) return;
-  if (!p.on && !p.bot) return;
   const l = legal(S, p);
+  if (l.length && !p.on && !p.bot) {
+    // a disconnected player's turn: wait TURN_WAIT for them, then a bot makes this one move
+    const d = awayDue(S, p);
+    S.timer = setTimeout(() => {
+      if (S.phase !== 'playing' || S.players[S.turn] !== p || p.on || p.bot) return;
+      const curLegal = legal(S, p);
+      if (curLegal.length) play(S, p, botMove(S, p, curLegal));
+    }, Math.max(0, d.at - Date.now()));
+    return;
+  }
   if (!l.length) {
     const d = passDue(S, p);
     S.timer = setTimeout(() => {
@@ -245,12 +261,21 @@ function push(S) {
   }
 }
 
+// How long the table waits on a disconnected player's turn: one deadline per turn (keyed like passDue).
+function awayDue(S, p) {
+  const seq = S.turnSeq || 0;
+  if (!S.awayDue || S.awayDue.seq !== seq || S.awayDue.p !== p) S.awayDue = { seq, p, at: Date.now() + TURN_WAIT };
+  return S.awayDue;
+}
+
 // The pass deadline for the current turn. A connected person gets PASS_MS to press Pass; bots pass quickly.
 function passDue(S, p) {
   const seq = S.turnSeq || 0;
   if (!S.passDue || S.passDue.seq !== seq || S.passDue.p !== p) {
     S.passDue = { seq, p, at: Date.now() + (p.on && !p.bot ? PASS_MS : AUTO_PASS_MS) };
   }
+  // someone who drops mid-countdown can no longer tap Pass: don't hold the table for the rest of PASS_MS
+  if (!p.on || p.bot) S.passDue.at = Math.min(S.passDue.at, Date.now() + AUTO_PASS_MS);
   return S.passDue;
 }
 function doPass(S, p) {
@@ -541,8 +566,29 @@ function play(S, p, id) {
   afterMove(S);
 }
 
+// A seated player is offline mid-round: say so after DEBOUNCE, and after GRACE a bot plays their cards
+// (they can still come back). Used when a stream drops and when a deal includes someone briefly offline.
+function startGrace(S, p) {
+  clearTimeout(p.dtimer); clearTimeout(p.btimer);
+  p.deadline = Date.now() + GRACE;
+  p.dtimer = setTimeout(() => {
+    if (p.on || p.left || p.bot) return;
+    p.announced = true;
+    notify(S, p.name + ' lost connection. Waiting ' + Math.round(GRACE / 1000) + 's for them to come back.', 'leave');
+    push(S);
+  }, DEBOUNCE);
+  p.btimer = setTimeout(() => {
+    if (p.on || !rooms.has(S.code)) return;
+    p.bot = true; p.deadline = 0;
+    notify(S, p.name + ' didn’t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards. They can still rejoin.', 'leave');
+    push(S);
+  }, GRACE);
+}
+
 function start(S) {
-  for (const p of [...S.players]) if (!p.on) forgetPlayer(S, p);
+  // Phones drop their connection whenever the screen locks, so someone briefly offline at the deal is
+  // still dealt in (with the usual reconnect grace). Only players who left, or never connected, are removed.
+  for (const p of [...S.players]) if (!p.on && (p.left || !p.joinedOnce)) forgetPlayer(S, p);
   const n = S.players.length;
   if (n < 2) { push(S); return { err: 'At least 2 connected players are needed' }; }
   let deck;
@@ -586,6 +632,7 @@ function start(S) {
   S.turn = S.players.findIndex(p => p.hand.includes(H7)); S.phase = 'playing';
   addLog(S, 'Round ' + S.round + ' dealt: ' + each + ' cards each. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
   if (S.removed.length) addChat(S, '', 'Round ' + S.round + ': ' + S.removed.map(cardName).join(' ') + ' set aside so all ' + n + ' players hold ' + each + ' cards.', true);
+  for (const p of S.players) if (!p.on) startGrace(S, p); // dealt in while briefly offline
   maybeLastThree(S);
   push(S); return {};
 }
@@ -714,6 +761,8 @@ function act(b, ip) {
   const rec = b.t ? byToken.get(String(b.t)) : null;
   if (!rec) return { err: 'Not joined' };
   const { S, p } = rec;
+  // each seat has its own limit, so players sharing an address never slow each other down
+  if (b.a !== 'leave' && !hit('seat:' + p.t, SEAT_MAX, 10000)) return { err: 'Too many requests. Please slow down.', state: view(S, p) };
   if (b.a !== 'leave' && (!p.on || p.bot)) {
     p.on = true; p.bot = false; p.left = false; p.deadline = 0;
     clearTimeout(p.dtimer); clearTimeout(p.btimer);
@@ -841,7 +890,8 @@ function handle(req, res) {
     return res.end('ok');
   }
   if (req.method === 'GET' && u.pathname === '/events') {
-    if (!checkRate(req, 80, 10000)) { res.writeHead(429, { ...SEC_HEADERS, 'Retry-After': '10' }); return res.end(); }
+    // per address only as a flood guard: a whole table can share one Wi-Fi or carrier address
+    if (!checkRate(req, IP_FLOOD_MAX, 10000)) { res.writeHead(429, { ...SEC_HEADERS, 'Retry-After': '2' }); return res.end(); }
     const token = u.searchParams.get('t') || '';
     const rec = byToken.get(token);
     if (!rec) { res.writeHead(404, SEC_HEADERS); return res.end(); }
@@ -881,19 +931,7 @@ function handle(req, res) {
           }
         }, 20000);
       } else if (!p.spectator && !p.done) {
-        p.deadline = Date.now() + GRACE;
-        p.dtimer = setTimeout(() => {
-          if (p.on || p.left || p.bot) return;
-          p.announced = true;
-          notify(S, p.name + ' lost connection. Waiting ' + Math.round(GRACE / 1000) + 's for them to come back.', 'leave');
-          push(S);
-        }, DEBOUNCE);
-        p.btimer = setTimeout(() => {
-          if (p.on || !rooms.has(S.code)) return;
-          p.bot = true; p.deadline = 0;
-          notify(S, p.name + ' didn\u2019t return in ' + Math.round(GRACE / 1000) + 's — a bot is playing their cards. They can still rejoin.', 'leave');
-          push(S);
-        }, GRACE);
+        startGrace(S, p);
       }
       scheduleIdle(S);
       if (rooms.get(S.code) === S) push(S);
@@ -902,7 +940,8 @@ function handle(req, res) {
   }
   if (req.method === 'POST' && u.pathname === '/api') {
     warnIfProxied(req);
-    if (!checkRate(req, 60, 10000)) { res.setHeader('Retry-After', '10'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
+    // per address only as a flood guard; each seat gets its own limit in act()
+    if (!checkRate(req, IP_FLOOD_MAX, 10000)) { res.setHeader('Retry-After', '2'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
     const ct = String(req.headers['content-type'] || '').toLowerCase();
     if (!ct.includes('application/json')) return json(res, 415, { err: 'Expected application/json' });
     const origin = req.headers.origin;
