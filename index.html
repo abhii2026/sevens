@@ -415,7 +415,9 @@ button.vmic:hover{box-shadow:0 0 0 1px currentColor}
 }
 .pass-btn span{min-width:.6em;font-variant-numeric:tabular-nums;opacity:.7}
 .pass-btn span:empty{display:none}
-.pass-btn i{position:absolute;left:0;bottom:0;height:3px;width:100%;background:rgba(36,23,3,.45);transform-origin:left;animation:passDrain var(--left,3000ms) linear forwards}
+/* countdown: a card-red bar draining over a faint ink track, so it reads clearly on the gold */
+.pass-btn::before{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(36,23,3,.2)}
+.pass-btn i{position:absolute;left:0;bottom:0;height:4px;width:100%;background:var(--red);box-shadow:0 0 6px rgba(200,50,47,.55);transform-origin:left;animation:passDrain var(--left,5000ms) linear forwards}
 .pass-btn[disabled]{opacity:.6}
 @keyframes passIn{from{opacity:0;transform:scale(.85)}}
 @keyframes passDrain{to{transform:scaleX(0)}}
@@ -1215,7 +1217,7 @@ body.round-over .chat-backdrop{z-index:255}
     <h2 id="rulesTitle">How to play</h2>
     <ol class="rules">
       <li><b>Deal.</b> The deck is dealt out so everyone holds the same number of cards. If 52 doesn't divide evenly, the lowest cards are set aside first: <b>A♠ A♥ A♦ A♣</b>, then the 2s. Whoever holds the <b>7♥</b> opens the round.</li>
-      <li><b>Build.</b> On your turn, play a <b>7</b> to open a suit, or the next card above or below a run already on the table. With nothing playable, tap <b>Pass</b>; after 3 seconds it passes for you.</li>
+      <li><b>Build.</b> On your turn, play a <b>7</b> to open a suit, or the next card above or below a run already on the table. With nothing playable, tap <b>Pass</b>; after 5 seconds it passes for you.</li>
       <li><b>Finish.</b> The round ends the moment someone plays their last card.</li>
     </ol>
     <h3 class="rules-h">Scoring</h3>
@@ -1490,10 +1492,10 @@ function syncPracticeView(){
 function pAdvance(){
   P_STATE.turn=(P_STATE.turn+1)%4;P_STATE.seq=(P_STATE.seq||0)+1;
 }
-// pass deadline for the current turn: you get 3s to tap Pass, bots pass quickly
+// pass deadline for the current turn: you get 5s to tap Pass, bots pass quickly
 function pPassDue(t){
   const d=P_STATE.passDue;
-  if(!d||d.seq!==(P_STATE.seq||0))P_STATE.passDue={seq:P_STATE.seq||0,at:Date.now()+(t===0?3000:900)};
+  if(!d||d.seq!==(P_STATE.seq||0))P_STATE.passDue={seq:P_STATE.seq||0,at:Date.now()+(t===0?5000:900)};
   return P_STATE.passDue.at;
 }
 function pDoPass(t){
@@ -1807,19 +1809,40 @@ function connect(){
     applyIncomingState(JSON.parse(e.data));
   };
   es.addEventListener('sig',e=>{try{onSignal(JSON.parse(e.data))}catch(x){}});
+  es.onopen=()=>{recoverTries=0};
   es.onerror=()=>{
-    if(es.readyState===2){
-      voiceStop();
-      const rCode=roomFromUrl(),savedN=getStore('sevensN');
-      T='';setStore('sevensT',null);G=null;lastSig='';
-      if(rCode&&savedN){
-        api({a:'join',name:savedN,room:rCode,cid:CID}).then(r=>{
-          if(r&&r.t){T=r.t;setStore('sevensT',T);connect();}
-          else render();
-        });
-      }else render();
-    }
+    if(es.readyState!==2)return; // a dropped connection: EventSource retries by itself
+    // Closed for good: either the server no longer knows our token, or this page is unloading
+    // (Chrome closes the stream before pagehide on a reload). Timers don't fire on a page that has gone,
+    // so wait a moment, then ask the server before forgetting the seat.
+    const dead=es;
+    setTimeout(()=>{if(es===dead)recoverSeat()},Math.min(10000,400*2**recoverTries++));
   };
+}
+let recoverTries=0;
+async function recoverSeat(){
+  const room=roomFromUrl()||(G&&G.room)||'',name=getStore('sevensN'),old=T;
+  if(!room||!name)return forgetSeat(); // a join without both would open a new table or a nameless seat
+  T=''; // so api() doesn't reconnect with the old token on its own
+  // a known token comes straight back; otherwise the server matches us to our seat by client id and name
+  const r=await api({a:'join',t:old,room,name,cid:CID});
+  if(r&&r.t){T=r.t;setStore('sevensT',T);connect();return}
+  if(r&&r.err==='offline'){T=old;setTimeout(recoverSeat,Math.min(10000,1000*2**recoverTries++));return} // server asleep or restarting
+  forgetSeat();
+  // tables live in server memory, so a restart (a deploy, or a free host waking from sleep) closes them
+  if(r&&r.err)toast(/^No table/.test(r.err)?'That table has closed. Open a new one to keep playing.':r.err);
+}
+// Free hosts (Render) put the server to sleep after 15 minutes with no incoming requests, and the event
+// stream only carries traffic outward. While someone is actually at a table, send a tiny request now and then.
+let lastActive=Date.now();
+['pointerdown','keydown'].forEach(t=>addEventListener(t,()=>{lastActive=Date.now()},{passive:true,capture:true}));
+setInterval(()=>{
+  if(T&&!practiceMode&&es&&es.readyState===1&&Date.now()-lastActive<30*60000)fetch('/health',{cache:'no-store'}).catch(()=>{});
+},5*60000);
+function forgetSeat(){
+  voiceStop();
+  T='';setStore('sevensT',null);G=null;lastSig='';
+  render();
 }
 
 let joining=false;

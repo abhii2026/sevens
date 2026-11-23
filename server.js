@@ -5,22 +5,34 @@ const GRACE = +process.env.GRACE_MS || 30000, DEBOUNCE = +process.env.DEBOUNCE_M
 const JOIN_WAIT = +process.env.JOIN_WAIT_MS || 20000;
 const INVALID_WAIT = +process.env.INVALID_WAIT_MS || 5000; // 5s wait when a round is invalidated (4 Kings)
 const PORT = +process.env.PORT || 3000, MAX = 12, MAX_ROOMS = 80, H7 = 19; // card id = suit*13 + rank-1 ; 7♥ = 19
-const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
+// On Render (which sets RENDER=true) the public https URL, proxy trust and client-IP header are detected,
+// so a deploy needs no settings. Any of them can still be overridden with its own env var.
+const ON_RENDER = process.env.RENDER === 'true';
+const env = (k, fallback) => (process.env[k] != null && process.env[k] !== '' ? process.env[k] : fallback);
+const PUBLIC_ORIGIN = String(env('PUBLIC_ORIGIN', ON_RENDER ? process.env.RENDER_EXTERNAL_URL || '' : '')).replace(/\/+$/, '');
 const RK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'], SY = ['♠', '♥', '♦', '♣'];
 const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 // Hops of trusted reverse proxy in front of this process (0 = none: use the socket address).
 // Needed behind a proxy/PaaS, or every visitor shares one rate-limit bucket.
-const TRUST_PROXY = Math.max(0, parseInt(process.env.TRUST_PROXY, 10) || 0);
+const TRUST_PROXY = Math.max(0, parseInt(env('TRUST_PROXY', ON_RENDER ? '1' : '0'), 10) || 0);
+// A header the edge in front of us sets to the visitor's address. Render sits behind Cloudflare,
+// which overwrites CF-Connecting-IP on every request. Used only for rate limiting.
+const CLIENT_IP_HEADER = String(env('CLIENT_IP_HEADER', ON_RENDER ? 'cf-connecting-ip' : '')).trim().toLowerCase();
+// Behind a TLS-terminating proxy, send plain-http visitors to the https origin.
+const FORCE_HTTPS = env('FORCE_HTTPS', PUBLIC_ORIGIN.startsWith('https://') && TRUST_PROXY ? '1' : '0') === '1' && PUBLIC_ORIGIN.startsWith('https://');
 // A connected player with no playable card gets PASS_MS to press Pass before it happens for them.
-const PASS_MS = +process.env.PASS_MS || 3000, AUTO_PASS_MS = 1200;
+const PASS_MS = +process.env.PASS_MS || 5000, AUTO_PASS_MS = 1200;
 const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
 // Voice chat is peer-to-peer WebRTC: this server only relays each pair's offer/answer (POST /rtc, up to SIG_MAX bytes).
 // STUN (free, public by default) lets most browsers find each other; TURN is an optional relay for strict networks.
 const SIG_MAX = 16000, SDP_MAX = 15000;
 const csv = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
-const STUN_URLS = csv(process.env.STUN_URLS != null ? process.env.STUN_URLS : 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302');
+const STUN_URLS = csv(process.env.STUN_URLS != null ? process.env.STUN_URLS : 'stun:stun.l.google.com:19302,stun:stun.cloudflare.com:3478');
 const TURN_URLS = csv(process.env.TURN_URLS), TURN_SECRET = process.env.TURN_SECRET || '';
 const TURN_USER = process.env.TURN_USER || '', TURN_PASS = process.env.TURN_PASS || '';
+// Cloudflare's hosted TURN relay: the server trades the key for short-lived credentials and shares them.
+const CF_TURN_KEY_ID = process.env.CF_TURN_KEY_ID || '', CF_TURN_API_TOKEN = process.env.CF_TURN_API_TOKEN || '';
+const CF_TURN_TTL = 6 * 3600, CF_TURN_REFRESH_MS = 3600 * 1000;
 
 // index.html is immutable for the life of the process: compress once, serve with an ETag.
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'));
@@ -57,12 +69,19 @@ const hostId = S => { const h = S.players.find(p => p.on) || S.players[0]; retur
 const normRoom = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 
 function clientIp(req) {
+  if (CLIENT_IP_HEADER) {
+    const v = String(req.headers[CLIENT_IP_HEADER] || '').trim();
+    if (v && v.length <= 64) return logIpSource(CLIENT_IP_HEADER), v;
+  }
   if (TRUST_PROXY) {
     const xf = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
-    if (xf.length) return xf[Math.max(0, xf.length - TRUST_PROXY)]; // the entry our own proxy appended
+    if (xf.length) return logIpSource('x-forwarded-for'), xf[Math.max(0, xf.length - TRUST_PROXY)]; // the entry our own proxy appended
   }
   return req.socket.remoteAddress || 'local';
 }
+// Say once where client addresses come from, so a deploy can confirm rate limits are per visitor.
+let ipSource = '';
+function logIpSource(src) { if (ipSource) return; ipSource = src; console.log('Rate limits use the client address from the ' + src + ' header.'); }
 // Fixed-window counter. Keys are client IPs (optionally prefixed per purpose).
 function hit(key, max, windowMs) {
   const now = Date.now();
@@ -81,7 +100,7 @@ const checkRate = (req, max = 80, windowMs = 10000) => hit(clientIp(req), max, w
 // Behind a proxy with TRUST_PROXY unset, every visitor would share one rate-limit bucket: say so once.
 let proxyWarned = false;
 function warnIfProxied(req) {
-  if (proxyWarned || TRUST_PROXY || !req.headers['x-forwarded-for']) return;
+  if (proxyWarned || TRUST_PROXY || CLIENT_IP_HEADER || !req.headers['x-forwarded-for']) return;
   proxyWarned = true;
   console.warn('Requests carry X-Forwarded-For but TRUST_PROXY is 0: all visitors share one rate limit. Set TRUST_PROXY=1 if this server is behind a reverse proxy.');
 }
@@ -104,7 +123,35 @@ function iceServers(p) {
     const username = (Math.floor(Date.now() / 1000) + 12 * 3600) + ':' + p.id;
     out.push({ urls: TURN_URLS, username, credential: crypto.createHmac('sha1', TURN_SECRET).update(username).digest('base64') });
   } else if (TURN_URLS.length && TURN_USER) out.push({ urls: TURN_URLS, username: TURN_USER, credential: TURN_PASS });
+  if (CF_TURN_KEY_ID) {
+    if (Date.now() - cfIce.at > CF_TURN_REFRESH_MS) refreshCfIce(); // the cached ones stay valid for hours yet
+    out.push(...cfIce.servers);
+  }
   return out;
+}
+const cfIce = { servers: [], at: 0, busy: false };
+async function refreshCfIce() {
+  if (!CF_TURN_KEY_ID || !CF_TURN_API_TOKEN || cfIce.busy) return;
+  cfIce.busy = true;
+  try {
+    const r = await fetch('https://rtc.live.cloudflare.com/v1/turn/keys/' + encodeURIComponent(CF_TURN_KEY_ID) + '/credentials/generate-ice-servers', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + CF_TURN_API_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ttl: CF_TURN_TTL }), signal: AbortSignal.timeout(8000)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    // browsers block port 53, and without trickle ICE a dead URL only adds a timeout
+    cfIce.servers = [].concat(j.iceServers || []).filter(s => s && s.urls).map(s => {
+      const o = { urls: [].concat(s.urls).filter(u => typeof u === 'string' && !/:53(\?|$)/.test(u)) };
+      if (s.username) { o.username = String(s.username); o.credential = String(s.credential || ''); }
+      return o;
+    }).filter(s => s.urls.length);
+    cfIce.at = Date.now();
+  } catch (e) {
+    console.warn('Cloudflare TURN: could not get credentials (' + e.message + '); voice falls back to STUN only.');
+    cfIce.at = Date.now() - CF_TURN_REFRESH_MS + 60000; // try again in a minute
+  }
+  cfIce.busy = false;
 }
 // A player's voice session number. It changes whenever they (re)join voice or reconnect, which tells
 // every peer to rebuild its connection to them. 0 = not in voice (or not connected).
@@ -839,6 +886,10 @@ function json(res, status, obj) {
 function handle(req, res) {
   let u;
   try { u = new URL(req.url, 'http://localhost'); } catch (e) { res.writeHead(400, SEC_HEADERS); return res.end(); }
+  // the proxy terminated plain http: send the visitor to the https origin (never to a client-supplied host)
+  if (FORCE_HTTPS && u.pathname !== '/health' && String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'http') {
+    res.writeHead(301, { ...SEC_HEADERS, Location: PUBLIC_ORIGIN + u.pathname + u.search }); return res.end();
+  }
   if ((req.method === 'GET' || req.method === 'HEAD') && (u.pathname === '/' || u.pathname === '/index.html')) {
     const head = { ...SEC_HEADERS, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ETag: INDEX_ETAG, Vary: 'Accept-Encoding' };
     if (req.headers['if-none-match'] === INDEX_ETAG) { res.writeHead(304, head); return res.end(); }
@@ -972,7 +1023,11 @@ if (require.main === module) {
     console.log('\n  SEVENS is on the internet. Open:\n');
     console.log('    http://localhost:' + PORT);
     console.log('\n  Share the table link shown in the lobby (/?r=CODE). Empty rooms close after 1 minute.\n');
+    if (PUBLIC_ORIGIN) console.log('  Public address: ' + PUBLIC_ORIGIN + (FORCE_HTTPS ? ' (http redirects to https)' : ''));
+    if (ON_RENDER) console.log('  Render detected: TRUST_PROXY=' + TRUST_PROXY + ', client IP header: ' + (CLIENT_IP_HEADER || 'none'));
+    console.log('  Voice relay (TURN): ' + (CF_TURN_KEY_ID ? 'Cloudflare' : TURN_URLS.length ? 'TURN_URLS' : 'none, STUN only') + '\n');
   });
+  refreshCfIce();
   const beat = setInterval(() => {
     for (const set of conns.values()) for (const r of set) sseWrite(r, ': hb\n\n');
     const now = Date.now();
