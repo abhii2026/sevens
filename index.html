@@ -272,6 +272,28 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .pl.off{opacity:.72;border-color:rgba(var(--danger-rgb),.35)}
 .pl.off .pl-dot{background:var(--danger)}
 
+/* ---------- voice chat ---------- */
+.voice-ctl{display:inline-flex;gap:6px}
+#voiceBtn.muted{color:var(--danger-soft);background:rgba(var(--danger-rgb),.1);border-color:rgba(var(--danger-rgb),.4)}
+#voiceBtn[disabled]{opacity:.6;cursor:progress}
+.vleave{color:var(--danger-soft)}
+.vleave:hover{color:#fff;background:rgba(var(--danger-rgb),.22);border-color:rgba(var(--danger-rgb),.5)}
+.vleave svg{width:16px;height:16px}
+.vmic{
+  flex:none;display:inline-grid;place-items:center;width:20px;height:20px;padding:0;border-radius:50%;
+  border:0;background:rgba(var(--ok-rgb),.13);color:var(--ok);font:inherit;
+}
+.vmic svg{width:12px;height:12px;fill:currentColor}
+.vmic.off{background:rgba(255,255,255,.06);color:var(--muted)}
+.vmic.deaf{background:rgba(var(--danger-rgb),.14);color:var(--danger-soft)}
+.vmic.wait{opacity:.5}
+button.vmic{cursor:pointer;transition:box-shadow .15s var(--ease)}
+button.vmic:hover{box-shadow:0 0 0 1px currentColor}
+.lb-p .vmic{width:26px;height:26px}
+.lb-p .vmic svg{width:14px;height:14px}
+.pl-av,.lb-av{transition:box-shadow .15s ease-out}
+.talk .pl-av,.talk .lb-av{box-shadow:0 0 0 2px var(--ok),0 0 12px rgba(var(--ok-rgb),.55)}
+
 /* ---------- playing cards (all geometry in cqw so one design scales to any size) ---------- */
 .card{
   position:relative;width:var(--w,64px);aspect-ratio:5/7;flex:none;
@@ -1140,7 +1162,9 @@ body.round-over .chat-backdrop{z-index:255}
   .suit{gap:6px}.lab{width:17px;height:17px}
   .icon-btn .lbl{display:none}
   .icon-btn{padding:0 8px}
+  .topbar:has(.voice-ctl) .round-pill{display:none} /* room for the voice buttons */
 }
+@media(max-width:440px){.topbar:has(.vleave) .brand-mini span{display:none}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -1197,6 +1221,8 @@ body.round-over .chat-backdrop{z-index:255}
     <h3 class="rules-h">Scoring</h3>
     <p class="modal-desc">Cards left in your hand count against you. <b>Lowest total wins.</b></p>
     <div class="rules-pts"><span><b>A</b>1 pt</span><span><b>2–10</b>face value</span><span><b>J</b>11</span><span><b>Q</b>12</span><span><b>K</b>13</span></div>
+    <h3 class="rules-h">Voice</h3>
+    <p class="modal-desc">Tap <b>Voice</b> at the top to talk with everyone else who joins it. Tap the mic to mute yourself, or the mic beside a player's name to mute them for you only.</p>
     <button id="rulesClose" class="btn wide" type="button">Got it</button>
   </div>
 </div>
@@ -1387,7 +1413,7 @@ function pCanPlay(id){return pCanPlayOn(P_STATE.board,P_STATE.started,id)}
 function pLegal(idx){return P_STATE.hands[idx].filter(pCanPlay)}
 function startPractice(playerName){
   const isNew=!practiceMode||!P_STATE.players.length;
-  practiceMode=true;clearTimeout(practiceTimer);
+  practiceMode=true;clearTimeout(practiceTimer);voiceStop();
   const typed=String(playerName||'').trim().slice(0,14);
   if(typed)setStore('sevensN',typed);
   const nm=typed||'You';
@@ -1509,7 +1535,7 @@ function applyIncomingState(nextG){
   passUntil=G.pass?Date.now()+G.pass:0;
   invUntil=G.invalid&&!G.invalid.canDeal?Date.now()+G.invalid.left*1000:0;
   const want=roomFromUrl();
-  if(want && G.room!==want){if(es)es.close();T='';setStore('sevensT',null);G=null;lastSig='';render();return}
+  if(want && G.room!==want){voiceStop();if(es)es.close();T='';setStore('sevensT',null);G=null;lastSig='';render();return}
   if(G.room&&!want)history.replaceState(null,'','?r='+G.room);
   const alerts=G.alerts||[];
   if(firstMsg){firstMsg=false;lastAlert=alerts.length?alerts[alerts.length-1].id:0}
@@ -1520,10 +1546,209 @@ function applyIncomingState(nextG){
   }
   if(G.last>=0&&G.last!==prevLast)sfx('card');
   const sig=stateSig(G);
-  if(sig===lastSig){paintChat();return}
+  if(sig===lastSig){paintChat();voiceSync();return}
   lastSig=sig;
   render();
+  voiceSync();
 }
+
+// ---------- voice chat ----------
+// Peer-to-peer WebRTC mesh. The server only relays each pair's offer/answer (POST /rtc, SSE `sig` events).
+// The player with the lower id calls; ICE candidates are gathered up front so each pair needs one round trip.
+// players[].voice is a session number that changes when someone (re)joins voice or reconnects, so a
+// connection is keyed by both ends' sessions and rebuilt whenever either changes.
+const V={on:false,busy:false,stream:null,track:null,mute:false,ice:[],peers:new Map(),retry:new Map(),deaf:new Set(),talk:new Set(),ctx:null,myAn:null,offSent:false,fixAt:0};
+const voiceOk=()=>!!(window.RTCPeerConnection&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+const MIC_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>';
+const MIC_OFF_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>';
+const SPK_OFF_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>';
+const HANG_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1 0-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.27 11.27 0 0 0-2.67-1.85.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>';
+
+async function getMic(){
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    V.stream=s;V.track=s.getAudioTracks()[0]||null;
+    V.myAn=V.track?meter(new MediaStream([V.track])):null;
+    return !!V.track;
+  }catch(e){return false}
+}
+async function voiceJoin(){
+  if(V.on||V.busy||!G||practiceMode)return;
+  if(!window.isSecureContext||!voiceOk())return toast('Voice chat needs a secure (https) link to this table.');
+  V.busy=true;paintVoice();
+  try{V.ctx=V.ctx||new (window.AudioContext||window.webkitAudioContext)();V.ctx.resume()}catch(e){V.ctx=null}
+  const mic=await getMic();
+  const r=await api({a:'voice',on:true,mute:!mic});
+  V.busy=false;
+  if(!r||r.err){voiceStop();paintVoice();return toast(r&&r.err==='offline'?'Could not reach the table':(r&&r.err)||'Could not join voice')}
+  V.ice=Array.isArray(r.ice)?r.ice:[];V.on=true;V.mute=!mic;V.offSent=false;
+  toast(mic?'You joined voice. Tap the mic to mute.':'Microphone blocked: you can listen, but nobody will hear you.');
+  voiceSync();
+}
+// local teardown only; the server is told separately (or already knows, e.g. on leave)
+function voiceStop(){
+  for(const id of [...V.peers.keys()])dropPeer(id);
+  if(V.stream)V.stream.getTracks().forEach(t=>t.stop());
+  V.stream=V.track=V.myAn=null;V.on=false;V.mute=false;V.retry.clear();V.talk.clear();
+  document.querySelectorAll('[data-pid].talk').forEach(el=>el.classList.remove('talk'));
+}
+function voiceLeave(){
+  if(!V.on)return;
+  voiceStop();paintVoice();
+  api({a:'voice',on:false});
+}
+async function voiceMute(){
+  if(!V.on)return;
+  if(!V.track){ // listening only so far: ask for the mic again
+    if(!await getMic())return toast('Microphone is blocked. Allow it in your browser’s site settings.');
+    for(const P of V.peers.values()){const tr=P.pc.getTransceivers()[0];if(tr)tr.sender.replaceTrack(V.track).catch(()=>{})}
+    V.mute=false;
+  }else V.mute=!V.mute;
+  V.track.enabled=!V.mute;
+  paintVoice();
+  api({a:'voice',on:true,mute:V.mute});
+}
+function meter(stream){
+  if(!V.ctx)return null;
+  try{const an=V.ctx.createAnalyser();an.fftSize=256;V.ctx.createMediaStreamSource(stream).connect(an);return an}catch(e){return null}
+}
+// resolves when ICE gathering finishes (or after 2.5s with whatever was found), so one message carries every candidate
+const iceDone=pc=>new Promise(res=>{
+  if(pc.iceGatheringState==='complete')return res();
+  const t=setTimeout(res,2500);
+  pc.addEventListener('icegatheringstatechange',()=>{if(pc.iceGatheringState==='complete'){clearTimeout(t);res()}});
+});
+function sendSig(to,tv,desc){
+  return fetch('/rtc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:T,a:'sig',to,tv,d:{type:desc.type,sdp:desc.sdp}})})
+    .then(r=>r.json()).catch(()=>({err:'offline'}));
+}
+function voiceBox(){
+  let b=document.getElementById('voiceAudio');
+  if(!b){b=document.createElement('div');b.id='voiceAudio';b.hidden=true;document.body.appendChild(b)}
+  return b;
+}
+function newPeer(id,key){
+  const pc=new RTCPeerConnection({iceServers:V.ice});
+  const P={pc,key,audio:null,an:null};
+  V.peers.set(id,P);
+  pc.ontrack=e=>{
+    const st=e.streams&&e.streams[0]||new MediaStream([e.track]);
+    if(!P.audio){P.audio=document.createElement('audio');P.audio.autoplay=true;P.audio.setAttribute('playsinline','');voiceBox().appendChild(P.audio)}
+    P.audio.srcObject=st;P.audio.muted=V.deaf.has(id);
+    P.audio.play().catch(()=>{});
+    P.an=meter(st);
+  };
+  pc.onconnectionstatechange=()=>{
+    if(V.peers.get(id)!==P)return;
+    if(pc.connectionState==='failed'){dropPeer(id,true);voiceSync()}
+    paintVoice();
+  };
+  return P;
+}
+function dropPeer(id,retry){
+  const P=V.peers.get(id);if(!P)return;
+  V.peers.delete(id);
+  try{P.pc.close()}catch(e){}
+  if(P.audio){P.audio.srcObject=null;P.audio.remove()}
+  if(retry){V.retry.set(id,Date.now()+3000);setTimeout(voiceSync,3100)}
+}
+async function callPeer(id,tv,key){
+  const P=newPeer(id,key),pc=P.pc;
+  pc.addTransceiver(V.track||'audio',{direction:'sendrecv'});
+  try{
+    await pc.setLocalDescription(await pc.createOffer());
+    await iceDone(pc);
+    if(V.peers.get(id)!==P)return;
+    const r=await sendSig(id,tv,pc.localDescription);
+    if(r&&r.err&&V.peers.get(id)===P)dropPeer(id,true);
+  }catch(e){if(V.peers.get(id)===P)dropPeer(id,true)}
+}
+async function onSignal(m){
+  if(!V.on||!G||!m||typeof m.sdp!=='string')return;
+  const me=G.players.find(p=>p.id===G.you);
+  if(!me||!me.voice||(m.tv&&m.tv!==me.voice))return; // meant for an older session of ours
+  const key=me.voice+':'+m.fv;
+  try{
+    if(m.type==='offer'){
+      dropPeer(m.from);
+      const P=newPeer(m.from,key),pc=P.pc;
+      await pc.setRemoteDescription({type:'offer',sdp:m.sdp});
+      const tr=pc.getTransceivers()[0];
+      if(tr){tr.direction='sendrecv';if(V.track)await tr.sender.replaceTrack(V.track)}
+      await pc.setLocalDescription(await pc.createAnswer());
+      await iceDone(pc);
+      if(V.peers.get(m.from)===P)sendSig(m.from,m.fv,pc.localDescription);
+    }else if(m.type==='answer'){
+      const P=V.peers.get(m.from);
+      if(P&&P.key===key&&P.pc.signalingState==='have-local-offer')await P.pc.setRemoteDescription({type:'answer',sdp:m.sdp});
+    }
+  }catch(e){if(V.peers.has(m.from))dropPeer(m.from,true)}
+}
+// Brings the set of peer connections in line with who is in voice right now
+function voiceSync(){
+  if(!G||practiceMode){if(V.on)voiceStop();paintVoice();return}
+  const me=G.players.find(p=>p.id===G.you);
+  if(!V.on){
+    // e.g. after a reload: the server still lists us in voice, but this page has no mic open
+    if(me&&me.voice&&!V.busy&&!V.offSent){V.offSent=true;api({a:'voice',on:false})}
+    if(me&&!me.voice)V.offSent=false;
+    return;
+  }
+  if(!me)return;
+  if(!me.voice){ // the server dropped us (left and rejoined, say): sign back in
+    if(Date.now()>V.fixAt){V.fixAt=Date.now()+5000;api({a:'voice',on:true,mute:V.mute||!V.track})}
+    return;
+  }
+  const want=new Map();
+  for(const q of G.players)if(q.id!==G.you&&q.voice)want.set(q.id,q.voice);
+  for(const [id,P] of V.peers)if(!want.has(id)||P.key!==me.voice+':'+want.get(id))dropPeer(id);
+  for(const [id,tv] of want){
+    if(V.peers.has(id)||G.you>id||Date.now()<(V.retry.get(id)||0))continue;
+    callPeer(id,tv,me.voice+':'+tv);
+  }
+  paintVoice();
+}
+function voiceCtlHTML(){
+  if(!V.on)return `<button id="voiceBtn" class="icon-btn" type="button" aria-label="Join voice chat" title="Talk to the table" ${V.busy?'disabled':''}>${MIC_SVG}<span class="lbl">${V.busy?'Joining…':'Voice'}</span></button>`;
+  return `<button id="voiceBtn" class="icon-btn active${V.mute?' muted':''}" type="button" aria-pressed="${!V.mute}" aria-label="${V.mute?'Unmute your microphone':'Mute your microphone'}" title="${V.mute?'Unmute':'Mute'}">${V.mute?MIC_OFF_SVG:MIC_SVG}<span class="lbl">${V.mute?'Muted':'Live'}</span></button><button id="voiceLeave" class="icon-btn vleave" type="button" aria-label="Leave voice chat" title="Leave voice">${HANG_SVG}</button>`;
+}
+// A player's voice badge: your own shows your mic; anyone else's mutes them for you alone
+function micTag(q){
+  if(!q.voice||practiceMode)return '';
+  const deaf=V.deaf.has(q.id),cls='vmic'+(q.vmute?' off':'')+(deaf?' deaf':'');
+  if(q.id===G.you)return `<span class="${cls}" data-vid="${q.id}" title="${q.vmute?'Your mic is muted':'You are in voice'}">${q.vmute?MIC_OFF_SVG:MIC_SVG}</span>`;
+  const who=esc(q.name);
+  return `<button type="button" class="${cls}" data-deaf="${q.id}" data-vid="${q.id}" aria-pressed="${deaf}" aria-label="${deaf?'Unmute':'Mute'} ${who} for you" title="${deaf?'Unmute':'Mute'} ${who}${q.vmute?' (their mic is off)':''}">${deaf?SPK_OFF_SVG:q.vmute?MIC_OFF_SVG:MIC_SVG}</button>`;
+}
+// light repaint of everything voice-related, without a full render
+function paintVoice(){
+  const vc=document.getElementById('voiceCtl');
+  if(vc){const h=voiceCtlHTML();if(vc.dataset.h!==h){vc.dataset.h=h;vc.innerHTML=h}}
+  document.querySelectorAll('button[data-vid]').forEach(el=>{
+    const P=V.peers.get(+el.dataset.vid);
+    el.classList.toggle('wait',V.on&&!(P&&P.pc.connectionState==='connected'));
+  });
+}
+function toggleDeaf(id){
+  if(V.deaf.has(id))V.deaf.delete(id);else V.deaf.add(id);
+  const P=V.peers.get(id);if(P&&P.audio)P.audio.muted=V.deaf.has(id);
+  const q=G&&G.players.find(p=>p.id===id),el=document.querySelector(`button[data-deaf="${id}"]`);
+  if(q&&el)el.outerHTML=micTag(q);
+  paintVoice();
+}
+// speaking glow: sample each stream's level a few times a second
+const lvBuf=new Uint8Array(256);
+function level(an){an.getByteTimeDomainData(lvBuf);let s=0;for(let i=0;i<lvBuf.length;i++){const d=(lvBuf[i]-128)/128;s+=d*d}return Math.sqrt(s/lvBuf.length)}
+setInterval(()=>{
+  if(!V.on&&!V.talk.size)return;
+  const now=new Set();
+  if(V.on&&G){
+    if(V.myAn&&!V.mute&&level(V.myAn)>.03)now.add(G.you);
+    for(const [id,P] of V.peers)if(P.an&&!V.deaf.has(id)&&level(P.an)>.03)now.add(id);
+  }
+  V.talk=now;
+  document.querySelectorAll('[data-pid]').forEach(el=>el.classList.toggle('talk',now.has(+el.dataset.pid)));
+},150);
 
 async function api(b){
   if(practiceMode){
@@ -1581,8 +1806,10 @@ function connect(){
   es.onmessage=e=>{
     applyIncomingState(JSON.parse(e.data));
   };
+  es.addEventListener('sig',e=>{try{onSignal(JSON.parse(e.data))}catch(x){}});
   es.onerror=()=>{
     if(es.readyState===2){
+      voiceStop();
       const rCode=roomFromUrl(),savedN=getStore('sevensN');
       T='';setStore('sevensT',null);G=null;lastSig='';
       if(rCode&&savedN){
@@ -1648,6 +1875,7 @@ function askLeaveTable(){
 async function executeLeave(){
   const modal=document.getElementById('confirmModal');
   if(modal)modal.hidden=true;
+  voiceStop(); // the server drops our voice flag on leave
   await api({a:'leave'});
   if(es)es.close();es=null;T='';setStore('sevensT',null);G=null;lastSig='';chatOpen=false;wasPhase='';
   try{history.replaceState(null,'',location.pathname)}catch(e){}
@@ -1933,6 +2161,9 @@ document.addEventListener('click',async e=>{
     const url=G?(G.url||location.origin+location.pathname+'?r='+G.room):location.href;
     copyText(url,markCopied);return;
   }
+  if(e.target.closest('#voiceBtn'))return V.on?voiceMute():voiceJoin();
+  if(e.target.closest('#voiceLeave'))return voiceLeave();
+  const deaf=e.target.closest('[data-deaf]');if(deaf)return toggleDeaf(+deaf.dataset.deaf);
   if(e.target.closest('#soundBtn')){
     muted=!muted;setStore('sevensMute',muted?'1':'0');
     toast(muted?'Sound muted':'Sound enabled');
@@ -2095,6 +2326,7 @@ function topbarHTML(){
       ${G.round?`<span class="round-pill">Round ${G.round}</span>`:''}
     </div>
     <div class="topbar-right">
+      ${!practiceMode&&voiceOk()?`<span id="voiceCtl" class="voice-ctl">${voiceCtlHTML()}</span>`:''}
       <button id="soundBtn" class="icon-btn" type="button" aria-label="Toggle sound"></button>
       <button id="chatBtn" class="icon-btn ${chatOpen?'active':''}" type="button" aria-label="Chat">
         <svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>
@@ -2146,9 +2378,9 @@ function lobby(){
       :p.on?`<span class="lb-chip ready"><i></i>Ready</span>`:`<span class="lb-chip wait"><i></i>Connecting…</span>`;
     const initial=esc((String(p.name).trim()[0]||'?').toUpperCase());
     const isNew=!firstVisit&&lobbySeen.room===G.room&&!lobbySeen.ids.has(p.id);
-    return `<li class="lb-p${me?' me':''}${isNew?' new':''}" style="--h:${nameHue(p.name)}">
+    return `<li class="lb-p${me?' me':''}${isNew?' new':''}${V.talk.has(p.id)?' talk':''}" data-pid="${p.id}" style="--h:${nameHue(p.name)}">
       <span class="lb-av" aria-hidden="true">${initial}</span>
-      <span class="lb-name"><b>${esc(p.name)}</b>${me?'<small>You</small>':''}</span>${chip}
+      <span class="lb-name"><b>${esc(p.name)}</b>${me?'<small>You</small>':''}</span>${micTag(p)}${chip}
     </li>`;
   }).join('');
   lobbySeen={room:G.room,ids:new Set(G.players.map(p=>p.id))};
@@ -2417,9 +2649,9 @@ function table(){
     const isLeader=hasHistory&&!q.spec&&sc===minScore;
     const isLoser=hasHistory&&!q.spec&&sc===maxScore&&maxScore>minScore;
     const badgeCls=isLoser?'loser':isLeader?'leader':'';
-    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}" style="--h:${nameHue(q.name)}">
+    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}${V.talk.has(q.id)?' talk':''}" data-pid="${q.id}" style="--h:${nameHue(q.name)}">
       <span class="pl-av" aria-hidden="true">${esc((String(q.name).trim()[0]||'?').toUpperCase())}<span class="pl-dot"></span></span>
-      <span class="pl-name">${esc(q.name)}${q.id===G.you?' (you)':''}</span>
+      <span class="pl-name">${esc(q.name)}${q.id===G.you?' (you)':''}</span>${micTag(q)}
       ${st?`<span class="pl-meta">${st}</span>`:''}${cards}
       ${q.spec?'':`<span class="pts-pill ${badgeCls}" title="Total points">${sc} pts</span>`}
     </div>`;
