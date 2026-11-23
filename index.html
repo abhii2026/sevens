@@ -250,13 +250,6 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .pl-cards i{width:8px;height:11px;border-radius:2px;background:var(--card-bg);box-shadow:2px -1px 0 rgba(253,251,245,.4)}
 .pl-cards.low{color:var(--gold-1)}
 .pl-cards.low i{background:var(--gold-1);box-shadow:2px -1px 0 rgba(var(--gold-rgb),.45)}
-.pts-pill{
-  padding:3px 7px;border-radius:999px;
-  font:600 11px/1 var(--sans);font-variant-numeric:tabular-nums;white-space:nowrap;
-  background:rgba(255,255,255,.06);color:var(--muted);
-}
-.pts-pill.leader{color:var(--ok);background:rgba(var(--ok-rgb),.1)}
-.pts-pill.loser{color:var(--danger-soft);background:rgba(var(--danger-rgb),.12)}
 .pl.turn{
   border-color:rgba(var(--gold-rgb),.7);
   background:linear-gradient(90deg,rgba(var(--gold-rgb),.18),rgba(10,18,15,.62) 80%);
@@ -600,6 +593,27 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .sc-row.lose .sc-pts b{color:var(--danger-soft)}
 .sc-roast{flex:none;margin:10px 8px 0;font-size:12.5px;line-height:1.4;color:var(--muted);font-style:italic}
 .sc-roast b{font-style:normal;font-weight:600;color:var(--text-2)}
+/* final results: a little wider, standings + a round-by-round grid share the height */
+.sc.final{max-width:520px}
+.sc-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin:0 -4px;padding:0 4px} /* standings + grid scroll together */
+.sc.final .sc-list{flex:none;overflow:visible}
+.sc-key{color:var(--ok-soft);letter-spacing:.12em}
+.sc-tag.gone{color:var(--muted);background:rgba(255,255,255,.07)}
+.sc-grid-head{margin-top:clamp(10px,1.8dvh,14px)}
+.sc-grid{
+  overflow-x:auto;
+  border-radius:14px;border:1px solid var(--line);background:rgba(6,12,10,.42);
+}
+.sc-grid table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text-2)}
+.sc-grid th,.sc-grid td{padding:7px 10px;text-align:right;white-space:nowrap}
+.sc-grid thead th{position:sticky;top:0;z-index:1;background:#0f211a;font:700 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.sc-grid th[scope=row],.sc-grid thead th:first-child{position:sticky;left:0;text-align:left;background:#0f211a;font-weight:600;color:var(--text);max-width:9em;overflow:hidden;text-overflow:ellipsis}
+.sc-grid thead th:first-child{z-index:2}
+.sc-grid tbody tr+tr{border-top:1px solid rgba(255,255,255,.05)}
+.sc-grid tr.me th[scope=row]{color:var(--gold-1)}
+.sc-grid td.best{color:var(--ok-soft);font-weight:700}
+.sc-grid td.na{color:var(--faint)}
+.sc-grid td.tot{font-weight:700;color:var(--gold-1);border-left:1px solid var(--line)}
 
 /* actions */
 .sc-actions{flex:none;margin-top:clamp(14px,2.2dvh,18px)}
@@ -1136,7 +1150,6 @@ body.round-over .chat-backdrop{z-index:255}
   .pl{gap:6px;padding:2px 8px 2px 2px}
   .pl-av{width:22px;height:22px;font-size:11px}
   .pl-name{font-size:12px}.pl-meta,.pl-cards{font-size:11px}
-  .pts-pill{font-size:10px;padding:2px 5px}
 }
 @media(max-width:520px){
   .suit{gap:6px}.lab{width:17px;height:17px}
@@ -1197,7 +1210,7 @@ body.round-over .chat-backdrop{z-index:255}
       <li><b>Finish.</b> The round ends the moment someone plays their last card.</li>
     </ol>
     <h3 class="rules-h">Scoring</h3>
-    <p class="modal-desc">Cards left in your hand count against you. <b>Lowest total wins.</b></p>
+    <p class="modal-desc">Cards left in your hand count against you. Play as many rounds as you like; when the host taps <b>End game</b>, the <b>lowest total across all rounds wins.</b></p>
     <div class="rules-pts"><span><b>A</b>1 pt</span><span><b>2–10</b>face value</span><span><b>J</b>11</span><span><b>Q</b>12</span><span><b>K</b>13</span></div>
     <button id="rulesClose" class="btn wide" type="button">Got it</button>
   </div>
@@ -1297,15 +1310,15 @@ const roomFromUrl=()=>new URLSearchParams(location.search).get('r')||'';
 let T='',CID='',G=null,lastSig='',es=null,wasMyTurn=false,wasPhase='',chatOpen=innerWidth>=1100,firstMsg=true,waitUntil=0,wl=null,seenChat=0,lastAlert=0,rafId=0,practiceMode=false,practiceTimer=null;
 try{
   T=sessionStorage.getItem('sevensT')||(!roomFromUrl()?localStorage.getItem('sevensT'):'')||'';
-  CID=sessionStorage.getItem('sevensCid')||'';
-  if(!CID){
-    CID=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');
-    sessionStorage.setItem('sevensCid',CID);
-  }
 }catch(e){}
+// One id per browser (not per tab), so rejoining from a new tab or a reopened link reclaims the same seat
+// instead of adding "Name 2". Falls back to the tab's storage, then to memory, if storage is blocked.
+try{CID=localStorage.getItem('sevensCid')||sessionStorage.getItem('sevensCid')||''}catch(e){}
+if(!CID)CID=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');
+try{localStorage.setItem('sevensCid',CID)}catch(e){try{sessionStorage.setItem('sevensCid',CID)}catch(x){}}
 const app=document.getElementById('app');
 let invUntil=0,passUntil=0;
-const stateSig=g=>g?JSON.stringify([g.phase,g.round,g.you,g.host,g.room,g.turn,g.last,g.spec,g.place,g.wait?g.wait.name:'',g.invalid,g.board,g.hand,g.legal,g.log,g.players]):'';
+const stateSig=g=>g?JSON.stringify([g.phase,g.round,g.you,g.host,g.room,g.turn,g.last,g.spec,g.place,g.wait?g.wait.name:'',g.invalid,g.board,g.hand,g.legal,g.log,g.players,g.history?g.history.length:0]):'';
 
 function legacyCopy(txt){
   const ta=document.createElement('textarea');
@@ -1397,6 +1410,8 @@ function startPractice(playerName){
   const deck=[...Array(52).keys()];
   for(let i=51;i>0;i--){const j=(Math.random()*(i+1))|0;[deck[i],deck[j]]=[deck[j],deck[i]]}
   P_STATE.round=isNew?1:P_STATE.round+1;
+  if(isNew)P_STATE.history=[];
+  P_STATE.final=false;
   P_STATE.hands=[[],[],[],[]];
   deck.forEach((c,i)=>P_STATE.hands[i%4].push(c));
   P_STATE.hands.forEach(h=>h.sort((a,b)=>a-b));
@@ -1424,6 +1439,8 @@ function pFinishRound(){
     p.leftCards=P_STATE.hands[i].slice();
     p.score=(p.score||0)+p.roundPts;
   });
+  // mirrors the server's S.history: every round's points, for the end-of-game results
+  (P_STATE.history=P_STATE.history||[]).push({round:P_STATE.round,rows:P_STATE.players.map(p=>({id:p.id,name:p.name,pts:p.roundPts,place:p.place}))});
 }
 function syncPracticeView(){
   if(!practiceMode)return;
@@ -1433,7 +1450,7 @@ function syncPracticeView(){
   let phase='playing';
   if(someoneOut||allBlocked){
     if(P_STATE.turn!==-1)pFinishRound();
-    phase='over';
+    phase=P_STATE.final?'final':'over';
   }
   G={
     phase,round:P_STATE.round,you:1,host:1,max:12,room:'SOLO',url:location.origin+location.pathname,
@@ -1444,7 +1461,8 @@ function syncPracticeView(){
     legal:P_STATE.turn===0?pLegal(0):[],
     pass:phase==='playing'&&P_STATE.turn===0&&!pLegal(0).length?Math.max(0,pPassDue(0)-Date.now()):0,
     last:P_STATE.last,log:P_STATE.log.slice(-5),spec:false,place:P_STATE.players[0].place,
-    chat:P_STATE.chat.slice(-40),alert:null,wait:null
+    chat:P_STATE.chat.slice(-40),alert:null,wait:null,
+    history:phase==='final'?(P_STATE.history||[]):undefined
   };
   passUntil=G.pass?Date.now()+G.pass:0;
   const sig=stateSig(G);
@@ -1535,8 +1553,16 @@ async function api(b){
       if(P_STATE.turn===0&&!pLegal(0).length){pDoPass(0);return {}}
       return {err:'You have a card you can play'};
     }
+    if(b.a==='endgame'){
+      if(G&&G.phase==='over'&&(P_STATE.history||[]).length){P_STATE.final=true;syncPracticeView();return {}}
+      return {err:'Finish the round first'};
+    }
+    if(b.a==='newgame'){
+      const nm=P_STATE.players[0]&&P_STATE.players[0].name!=='You'?P_STATE.players[0].name:'';
+      P_STATE.players=[];startPractice(nm);return {}; // no players = a fresh game: scores and history start over
+    }
     if(b.a==='resetscores'){
-      P_STATE.round=0;P_STATE.players.forEach(p=>{p.score=0;p.roundPts=0;p.leftCards=[]});
+      P_STATE.round=0;P_STATE.history=[];P_STATE.players.forEach(p=>{p.score=0;p.roundPts=0;p.leftCards=[]});
       toast('Scores reset to 0');startPractice(P_STATE.players[0]&&P_STATE.players[0].name!=='You'?P_STATE.players[0].name:'');return {};
     }
     if(b.a==='chat'){
@@ -1584,6 +1610,13 @@ function connect(){
     applyIncomingState(JSON.parse(e.data));
   };
   es.onopen=()=>{recoverTries=0};
+  // this seat was just reclaimed by another tab or window of this browser: step aside, don't fight for it
+  es.addEventListener('replaced',()=>{
+    if(es)es.close();es=null;T='';G=null;lastSig='';
+    try{sessionStorage.removeItem('sevensT')}catch(e){} // the other tab owns the shared token now
+    try{history.replaceState(null,'',location.pathname)}catch(e){}
+    render();toast('This table is now open in another tab.');
+  });
   es.onerror=()=>{
     if(es.readyState!==2)return; // a dropped connection: EventSource retries by itself
     // Closed for good: either the server no longer knows our token, or this page is unloading
@@ -1726,9 +1759,10 @@ function cvHue(name){let h=7;for(const c of String(name).toLowerCase())h=(h*31+c
 // then one standings panel. Text never goes below 22px so it stays legible when a phone shows
 // the 1080px image at ~1/3 scale. Height runs from square (few players) to ~3:4 (many).
 function generateScorecardCanvas(){
-  const seated=(G?G.players:[]).filter(p=>!p.spec);
-  const byTotal=[...seated].sort((a,b)=>(a.score||0)-(b.score||0)||(a.place||99)-(b.place||99));
-  if(!byTotal.length)byTotal.push({id:0,name:'Player',score:0,roundPts:0,leftCards:[]});
+  // whole-game totals from the round history (the poster is offered on the final results only)
+  const byTotal=finalStandings().map(s=>({id:s.id,name:s.name,score:s.total,wins:s.wins}));
+  const rounds=(G&&G.history||[]).length||1;
+  if(!byTotal.length)byTotal.push({id:0,name:'Player',score:0,wins:0});
   const winner=byTotal[0],loser=byTotal[byTotal.length-1];
   const shown=byTotal.length>8?[...byTotal.slice(0,7),loser]:byTotal.slice(),more=byTotal.length-shown.length,n=shown.length;
   const showTrail=byTotal.length>1&&(loser.score||0)>(winner.score||0);
@@ -1761,7 +1795,7 @@ function generateScorecardCanvas(){
   ctx.textAlign='left';ctx.font=`700 56px ${CV_SERIF}`;
   ctx.save();ctx.shadowColor='rgba(240,181,82,0.3)';ctx.shadowBlur=18;
   ctx.fillStyle=goldFill(ctx,62,114);ctx.fillText('Sevens',PAD,110);ctx.restore();
-  const rTxt=`ROUND ${G&&G.round?G.round:1}`;
+  const rTxt=`${rounds} ROUND${rounds===1?'':'S'}`;
   ctx.font=`700 22px ${CV_SANS}`;
   const rW=[...rTxt].reduce((a,c)=>a+ctx.measureText(c).width,0)+5*(rTxt.length-1)+52;
   ctx.fillStyle='rgba(255,226,160,0.08)';ctx.strokeStyle='rgba(255,226,160,0.32)';ctx.lineWidth=1.5;
@@ -1777,8 +1811,8 @@ function generateScorecardCanvas(){
   ctx.textAlign='center';
   ctx.save();ctx.shadowColor='rgba(240,181,82,0.35)';ctx.shadowBlur=34;
   ctx.fillStyle=goldFill(ctx,heroY+200,heroY+300);ctx.fillText(champ,W/2,heroY+298);ctx.restore();
-  // "<12> pts total · +3 this round" with the number in gold
-  const subA=String(winner.score||0),subB=` pts total  ·  ${winner.roundPts>0?'+'+winner.roundPts+' this round':'cleared their hand'}`;
+  // "<12> pts total · won 2 rounds" with the number in gold
+  const subA=String(winner.score||0),subB=` pts total  ·  ${winner.wins?`won ${winner.wins} round${winner.wins===1?'':'s'}`:`over ${rounds} round${rounds===1?'':'s'}`}`;
   ctx.font=`700 32px ${CV_SANS}`;const aw=ctx.measureText(subA).width;
   ctx.font=`500 30px ${CV_SANS}`;const bw=ctx.measureText(subB).width;
   let sx=W/2-(aw+bw)/2;ctx.textAlign='left';
@@ -1833,23 +1867,14 @@ function generateScorecardCanvas(){
       ctx.fillStyle='rgba(248,113,113,0.16)';roundRectPath(ctx,nx+nw+14,mid-34,ttw,30,15);ctx.fill();
       ctx.fillStyle='#f5a3a3';ctx.fillText(tt,nx+nw+26,mid-13);
     }
-    // leftover cards or "cleared"
-    let cx=nx;const cy=mid+8;
-    if(p.roundPts>0){
-      ctx.font=`700 22px ${CV_SANS}`;
-      for(const c of (p.leftCards||[])){
-        const t=RK[c%13+1]+SYM[c/13|0],cw=ctx.measureText(t).width+20;
-        if(cx+cw>ptsX-170){ctx.fillStyle='#8fa39a';ctx.fillText('…',cx,cy+25);break}
-        ctx.fillStyle='#fbf9f4';roundRectPath(ctx,cx,cy,cw,34,8);ctx.fill();
-        ctx.fillStyle=isRed(c/13|0)?'#c83e3b':'#1b1d1c';ctx.fillText(t,cx+10,cy+25);
-        cx+=cw+8;
-      }
-    }else{ctx.font=`600 24px ${CV_SANS}`;ctx.fillStyle='#7fdca0';ctx.fillText('Cleared their hand',cx,cy+26)}
+    // rounds won
+    ctx.font=`600 24px ${CV_SANS}`;ctx.fillStyle=p.wins?'#7fdca0':'#8fa39a';
+    ctx.fillText(p.wins?`Won ${p.wins} round${p.wins===1?'':'s'}`:'No round wins',nx,mid+34);
     // points
     ctx.textAlign='right';ctx.font=`700 ${big?56:48}px ${CV_SERIF}`;
     ctx.fillStyle=isWin?'#ffe7a8':isLose?'#f5a3a3':'#f3f1ec';ctx.fillText(String(p.score||0),ptsX,mid+6);
     ctx.font=`500 22px ${CV_SANS}`;ctx.fillStyle='#7d9188';
-    ctx.fillText(p.roundPts>0?`+${p.roundPts} this round`:'+0',ptsX,mid+36);
+    ctx.fillText('pts total',ptsX,mid+36);
   });
 
   // 5. footer
@@ -2040,7 +2065,7 @@ function paintChat(){
 let chatSig='',chatTop=0;
 // Keeps the scorecard's "Table talk" (latest messages + unread count) in sync
 function paintScChat(msgs,unread){
-  document.body.classList.toggle('round-over',!!G&&G.phase==='over');
+  document.body.classList.toggle('round-over',!!G&&(G.phase==='over'||G.phase==='final'));
   const feed=document.getElementById('scTalkFeed');if(!feed)return;
   const me=G.players.find(p=>p.id===G.you),myName=me?me.name:'';
   const recent=msgs.filter(m=>!m.sys).slice(-2);
@@ -2311,57 +2336,122 @@ function sendQuickReply(btn){
   api({a:'chat',msg}).then(r=>r&&r.err&&toast(r.err));
 }
 
+const SC_ICO={
+  share:'<svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>',
+  dl:'<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>',
+  leave:'<svg viewBox="0 0 24 24"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>',
+  flag:'<svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
+};
+const scBurst=()=>[0,45,90,135,180,225,270,315].map(a=>`<i style="--a:${a}deg"></i>`).join('');
+const scAvatar=name=>`<span class="lb-av" aria-hidden="true">${esc((String(name).trim()[0]||'?').toUpperCase())}</span>`;
+const scWait=(hostP,what)=>`<div class="sc-wait" role="status">Waiting for<b>${esc(hostP?hostP.name:'the host')}</b>${what}<span class="lb-dots"><i></i><i></i><i></i></span></div>`;
+
+// Round results: only this round. Who went out first (or held the fewest points when the board locked),
+// what everyone was left holding, and the points each takes from this round. Totals wait for the end.
 function buildRoundOverModal(fresh){
   const seated=G.players.filter(p=>!p.spec);
   if(!seated.length)return '';
-  const byTotal=[...seated].sort((a,b)=>(a.score||0)-(b.score||0)||(a.place||99)-(b.place||99));
-  const winner=byTotal[0];
-  const loser=byTotal[byTotal.length-1];
-  const showTrail=byTotal.length>1&&((loser.score||0)>0||(loser.roundPts||0)>0)&&(loser.score||0)>(winner.score||0);
-  const roast=ROASTS[((G.round||1)+loser.id)%ROASTS.length];
+  const byRound=[...seated].sort((a,b)=>(a.roundPts||0)-(b.roundPts||0)||(a.place||99)-(b.place||99));
+  const winner=byRound[0],worst=byRound[byRound.length-1];
+  const showTrail=byRound.length>1&&(worst.roundPts||0)>(winner.roundPts||0);
+  const roast=ROASTS[((G.round||1)+worst.id)%ROASTS.length];
   const num=v=>`<span data-count="${v||0}">${fresh?0:(v||0)}</span>`;
   const host=G.host===G.you,hostP=G.players.find(p=>p.id===G.host);
-  const rows=byTotal.map((p,idx)=>{
-    const isWin=idx===0,isLose=showTrail&&p.id===loser.id;
+  const rows=byRound.map((p,idx)=>{
+    const isWin=idx===0,isLose=showTrail&&p.id===worst.id;
     const left=p.roundPts>0
       ?`<span class="sc-left">${(p.leftCards||[]).map((c,ci)=>miniCardBadge(c,ci)).join('')}</span>`
       :'<span class="sc-left out">Cleared their hand</span>';
     return `<li class="sc-row${isWin?' win':isLose?' lose':''}" style="--h:${nameHue(p.name)};--i:${idx}">
       <span class="sc-rank${idx<3?' r'+(idx+1):''}">${idx+1}</span>
-      <span class="lb-av" aria-hidden="true">${esc((String(p.name).trim()[0]||'?').toUpperCase())}</span>
-      <span class="sc-who"><b><span>${esc(p.name)}</span>${p.id===G.you?'<small>You</small>':''}${isLose?'<i class="sc-tag">Trailing</i>':''}</b>${left}</span>
-      <span class="sc-pts"><b>${num(p.score)}</b><small>${p.roundPts>0?'+'+p.roundPts+' this round':'+0'}</small></span>
+      ${scAvatar(p.name)}
+      <span class="sc-who"><b><span>${esc(p.name)}</span>${p.id===G.you?'<small>You</small>':''}</b>${left}</span>
+      <span class="sc-pts"><b>+${num(p.roundPts)}</b><small>pts</small></span>
     </li>`;
   }).join('');
-  const ICO={
-    share:'<svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>',
-    dl:'<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>',
-    leave:'<svg viewBox="0 0 24 24"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>'
-  };
-  const burst=[0,45,90,135,180,225,270,315].map(a=>`<i style="--a:${a}deg"></i>`).join('');
-  const champSub=`<b>${num(winner.score)}</b> pts total · ${winner.roundPts>0?'+'+winner.roundPts+' this round':'cleared their hand'}`;
+  const champSub=winner.roundPts>0?`Fewest points left · <b>+${winner.roundPts}</b>`:'Went out first · <b>+0</b> pts';
   return `<section class="sc${fresh?' sc-in':''}" role="dialog" aria-modal="true" aria-labelledby="scTitle">
-    <span class="sc-round">Round ${G.round||1}</span>
+    <span class="sc-round">Round ${G.round||1} results</span>
     <div class="sc-champ">
-      <span class="sc-burst" aria-hidden="true">${burst}</span>
+      <span class="sc-burst" aria-hidden="true">${scBurst()}</span>
       <svg class="sc-crown" viewBox="0 0 64 52" aria-hidden="true"><use href="#crownSvg"/></svg>
-      <span class="sc-label">Champion</span>
+      <span class="sc-label">Round winner</span>
       <h2 id="scTitle" class="sc-champ-name">${esc(winner.name)}</h2>
       <span class="sc-champ-sub">${champSub}</span>
     </div>
     <div class="sc-divider"></div>
-    <div class="sc-head"><span>Standings</span><span>Total</span></div>
+    <div class="sc-head"><span>This round</span><span>Points</span></div>
     <ol class="sc-list">${rows}</ol>
-    ${showTrail?`<p class="sc-roast"><b>${esc(loser.name)}</b> · ${roast}</p>`:''}
+    ${showTrail?`<p class="sc-roast"><b>${esc(worst.name)}</b> · ${roast}</p>`:''}
     ${practiceMode?'':scTalkHTML(host)}
     <div class="sc-actions">
       ${host
         ?`<button class="btn lp-cta" data-a="start" type="button">Next Round${ARROW_SVG}</button>`
-        :`<div class="sc-wait" role="status">Waiting for<b>${esc(hostP?hostP.name:'the host')}</b>to deal<span class="lb-dots"><i></i><i></i><i></i></span></div>`}
+        :scWait(hostP,'to deal')}
       <div class="sc-tools">
-        <button id="shareCardBtn" class="btn-ghost sc-tool" type="button">${ICO.share}Share</button>
-        <button id="dlCardBtn" class="btn-ghost sc-tool" type="button">${ICO.dl}Save</button>
-        <button class="btn-ghost sc-tool" data-leave="1" type="button">${ICO.leave}Leave</button>
+        ${host?`<button class="btn-ghost sc-tool" data-a="endgame" type="button">${SC_ICO.flag}End game</button>`:''}
+        <button class="btn-ghost sc-tool" data-leave="1" type="button">${SC_ICO.leave}Leave</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+// Whole-game totals from the round history (by player id, so players who left still count).
+// Lowest total wins; ties go to more rounds won. Shared by the final results and the share poster.
+function finalStandings(){
+  const hist=(G&&G.history)||[],by=new Map();
+  hist.forEach((h,ri)=>h.rows.forEach(r=>{
+    let s=by.get(r.id);
+    if(!s){s={id:r.id,name:r.name,total:0,wins:0,pts:hist.map(()=>null)};by.set(r.id,s)}
+    s.name=r.name;s.total+=r.pts||0;s.pts[ri]=r.pts||0;if(r.place===1)s.wins++;
+  }));
+  const here=new Set((G?G.players:[]).map(p=>p.id));
+  return [...by.values()].map(s=>({...s,left:!here.has(s.id)}))
+    .sort((a,b)=>a.total-b.total||b.wins-a.wins||a.name.localeCompare(b.name));
+}
+
+// Final results: overall champion, standings by total, and every round's points.
+function buildFinalModal(fresh){
+  const st=finalStandings(),rounds=(G.history||[]).length;
+  if(!st.length)return '';
+  const champ=st[0],host=G.host===G.you,hostP=G.players.find(p=>p.id===G.host);
+  const num=v=>`<span data-count="${v||0}">${fresh?0:(v||0)}</span>`;
+  const rows=st.map((p,idx)=>`<li class="sc-row${idx===0?' win':''}" style="--h:${nameHue(p.name)};--i:${idx}">
+      <span class="sc-rank${idx<3?' r'+(idx+1):''}">${idx+1}</span>
+      ${scAvatar(p.name)}
+      <span class="sc-who"><b><span>${esc(p.name)}</span>${p.id===G.you?'<small>You</small>':''}${p.left?'<i class="sc-tag gone">Left</i>':''}</b><span class="sc-left">${p.wins?`Won ${p.wins} round${p.wins===1?'':'s'}`:'No round wins'}</span></span>
+      <span class="sc-pts"><b>${num(p.total)}</b><small>pts total</small></span>
+    </li>`).join('');
+  // round-by-round grid: lowest score of each round is highlighted
+  const best=(G.history||[]).map(h=>Math.min(...h.rows.map(r=>r.pts||0)));
+  const grid=`<div class="sc-grid" role="region" aria-label="Points by round" tabindex="0"><table>
+    <thead><tr><th scope="col">Player</th>${(G.history||[]).map(h=>`<th scope="col">R${h.round}</th>`).join('')}<th scope="col">Total</th></tr></thead>
+    <tbody>${st.map(p=>`<tr${p.id===G.you?' class="me"':''}><th scope="row">${esc(p.name)}</th>${p.pts.map((v,i)=>v==null?'<td class="na">–</td>':`<td${v===best[i]?' class="best"':''}>${v}</td>`).join('')}<td class="tot">${p.total}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+  return `<section class="sc final${fresh?' sc-in':''}" role="dialog" aria-modal="true" aria-labelledby="scTitle">
+    <span class="sc-round">Game over · ${rounds} round${rounds===1?'':'s'}</span>
+    <div class="sc-champ">
+      <span class="sc-burst" aria-hidden="true">${scBurst()}</span>
+      <svg class="sc-crown" viewBox="0 0 64 52" aria-hidden="true"><use href="#crownSvg"/></svg>
+      <span class="sc-label">Champion</span>
+      <h2 id="scTitle" class="sc-champ-name">${esc(champ.name)}</h2>
+      <span class="sc-champ-sub"><b>${num(champ.total)}</b> pts over ${rounds} round${rounds===1?'':'s'}</span>
+    </div>
+    <div class="sc-divider"></div>
+    <div class="sc-head"><span>Final standings</span><span>Total</span></div>
+    <div class="sc-body">
+      <ol class="sc-list">${rows}</ol>
+      <div class="sc-head sc-grid-head"><span>Points by round</span><span class="sc-key">Green = lowest</span></div>
+      ${grid}
+    </div>
+    <div class="sc-actions">
+      ${host
+        ?`<button class="btn lp-cta" data-a="newgame" type="button">New Game${ARROW_SVG}</button>`
+        :scWait(hostP,'to start a new game')}
+      <div class="sc-tools">
+        <button id="shareCardBtn" class="btn-ghost sc-tool" type="button">${SC_ICO.share}Share</button>
+        <button id="dlCardBtn" class="btn-ghost sc-tool" type="button">${SC_ICO.dl}Save</button>
+        <button class="btn-ghost sc-tool" data-leave="1" type="button">${SC_ICO.leave}Leave</button>
       </div>
     </div>
   </section>`;
@@ -2427,24 +2517,14 @@ function table(){
     else cs=`<div class="slot">${use(s)}<span>7</span></div>`;
     return `<div class="suit">${use(s,'lab '+(isRed(s)?'red':''))}<div class="line" data-fit="b">${cs}</div></div>`}).join('');
 
-  const seated=G.players.filter(q=>!q.spec);
-  const scores=seated.map(q=>q.score||0);
-  const minScore=scores.length?Math.min(...scores):0;
-  const maxScore=scores.length?Math.max(...scores):0;
-  const hasHistory=maxScore>0;
-
+  // chips show cards only; points stay hidden until the game's final results
   const chips=G.players.map(q=>{
     const st=q.spec?'next round':q.bot?(practiceMode?'':'bot playing'):!q.on?'reconnecting…':'';
     const cards=q.spec?'':`<span class="pl-cards${q.n<=3?' low':''}" aria-label="${q.n} card${q.n===1?'':'s'} left"><i></i>${q.n}</span>`;
-    const sc=q.score||0;
-    const isLeader=hasHistory&&!q.spec&&sc===minScore;
-    const isLoser=hasHistory&&!q.spec&&sc===maxScore&&maxScore>minScore;
-    const badgeCls=isLoser?'loser':isLeader?'leader':'';
     return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}" style="--h:${nameHue(q.name)}">
       <span class="pl-av" aria-hidden="true">${esc((String(q.name).trim()[0]||'?').toUpperCase())}<span class="pl-dot"></span></span>
       <span class="pl-name">${esc(q.name)}${q.id===G.you?' (you)':''}</span>
       ${st?`<span class="pl-meta">${st}</span>`:''}${cards}
-      ${q.spec?'':`<span class="pts-pill ${badgeCls}" title="Total points">${sc} pts</span>`}
     </div>`;
   }).join('');
 
@@ -2454,6 +2534,8 @@ function table(){
   const freshOver=G.phase==='over'&&wasPhase!=='over';
   if(freshOver)sfx('loser');
   const freshInvalid=G.phase==='invalid'&&wasPhase!=='invalid';
+  const freshFinal=G.phase==='final'&&wasPhase!=='final';
+  if(freshFinal)sfx('loser');
   wasPhase=G.phase;
 
   app.innerHTML=`${topbarHTML()}
@@ -2470,9 +2552,9 @@ function table(){
   </div>`;
 
   renderTopbarState();paintChat();paintCopied();
-  showOver(G.phase==='over'?buildRoundOverModal(freshOver):G.phase==='invalid'?buildInvalidModal(freshInvalid):'');
+  showOver(G.phase==='over'?buildRoundOverModal(freshOver):G.phase==='final'?buildFinalModal(freshFinal):G.phase==='invalid'?buildInvalidModal(freshInvalid):'');
   if(G.phase==='over')paintChat(); // fill the scorecard's Table talk now that it exists
-  if(freshOver)countUp(document.getElementById('over'));
+  if(freshOver||freshFinal)countUp(document.getElementById('over'));
   layout(wide);
   animateTable(snap);
 }

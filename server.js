@@ -111,7 +111,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [] };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [] };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -177,7 +177,8 @@ function commonView(S) {
     })),
     board: S.board, turn: cur ? cur.id : null, removed: S.removed || [],
     last: S.last, log: S.log.slice(-5),
-    chat: S.chat.slice(-40), alerts: S.alerts, wait, invalid: inv
+    chat: S.chat.slice(-40), alerts: S.alerts, wait, invalid: inv,
+    history: S.phase === 'final' ? S.history : undefined // only needed for the end-of-game results
   };
 }
 // The private part: never contains another player's cards.
@@ -501,6 +502,8 @@ function finishRound(S, winner) {
     q.score = (q.score || 0) + q.roundPts;
     if (q.roundPts > 0) summary.push(q.name + ' +' + q.roundPts + ' pts');
   }
+  // every round's points, by player id and name, for the end-of-game results (kept even if a player leaves)
+  S.history.push({ round: S.round, rows: S.players.filter(q => !q.spectator).map(q => ({ id: q.id, name: q.name, pts: q.roundPts, place: q.place })) });
   const prefix = winner ? (winner.name + ' went out first! ') : 'Round ended (board locked). ';
   addLog(S, prefix + (summary.length ? summary.join(', ') : '0 pts added'));
 }
@@ -653,29 +656,24 @@ function join(b, ip) {
   const baseKey = root.toLowerCase();
   const cid = String(b.cid || '').trim().slice(0, 40);
 
-  let ex = null;
-  if (S.phase === 'lobby') {
-    if (cid) {
-      ex = S.players.find(x => !x.on && x.cid === cid && x.name.toLowerCase() === base.toLowerCase()) || null;
-    }
-  } else {
-    if (cid) {
-      ex = S.players.find(x => !x.on && x.cid === cid && (!rawName || x.name.toLowerCase() === rawName.toLowerCase() || x.baseName === baseKey)) || null;
-    }
-    if (!ex && rawName) {
-      ex = S.players.find(x => !x.on && x.name.toLowerCase() === rawName.toLowerCase()) || null;
-    }
-    if (!ex && rawName && S.players.some(x => x.on && x.name.toLowerCase() === rawName.toLowerCase())) {
-      const sameBaseOffline = S.players.filter(x => !x.on && x.baseName === rawName.toLowerCase());
-      if (sameBaseOffline.length === 1) ex = sameBaseOffline[0];
-    }
+  // Reclaim an existing seat rather than adding "Name 2". `cid` identifies the browser, so a seat with the
+  // same cid is this person's even if it still looks connected (another tab, or a stream the proxy hasn't
+  // closed yet). Without a cid match, only a disconnected seat with the same name is reclaimed.
+  const nameKey = rawName.toLowerCase();
+  const sameName = x => !rawName || x.name.toLowerCase() === nameKey || x.baseName === baseKey;
+  let ex = cid ? S.players.find(x => x.cid === cid && sameName(x)) || null : null;
+  if (!ex && rawName) ex = S.players.find(x => !x.on && x.name.toLowerCase() === nameKey) || null;
+  if (!ex && rawName && S.players.some(x => x.on && x.name.toLowerCase() === nameKey)) {
+    const sameBaseOffline = S.players.filter(x => !x.on && x.baseName === nameKey);
+    if (sameBaseOffline.length === 1) ex = sameBaseOffline[0];
   }
 
   if (ex) {
     clearTimeout(ex.dtimer); clearTimeout(ex.btimer);
     const oldT = ex.t;
     byToken.delete(oldT);
-    for (const r of conns.get(oldT) || []) try { r.end(); } catch (e) {}
+    // the page that held this seat must stop instead of trying to win it back
+    for (const r of conns.get(oldT) || []) try { r.end('event: replaced\ndata: {}\n\n'); } catch (e) {}
     conns.delete(oldT);
     ex.t = crypto.randomBytes(16).toString('hex');
     if (cid) ex.cid = cid;
@@ -723,6 +721,7 @@ function act(b, ip) {
   if (b.a === 'start') {
     if (p.id !== hostId(S)) return { err: 'Only the host can deal', state: view(S, p) };
     if (S.phase === 'playing') return { err: 'A round is in progress', state: view(S, p) };
+    if (S.phase === 'final') return { err: 'The game has ended. Start a new game first', state: view(S, p) };
     if (S.phase === 'invalid' && S.invalidated && !S.invalidated.canDeal) {
       return { err: 'Please wait 5 seconds before starting a new round', state: view(S, p) };
     }
@@ -732,9 +731,29 @@ function act(b, ip) {
   if (b.a === 'resetscores') {
     if (p.id !== hostId(S)) return { err: 'Only the host can reset scores', state: view(S, p) };
     if (S.phase === 'playing') return { err: 'Cannot reset during an active round', state: view(S, p) };
-    S.round = 0;
+    S.round = 0; S.history = [];
     S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; });
     notify(S, 'The host reset all table scores to 0.');
+    push(S); return { state: view(S, p) };
+  }
+  // The host ends the game after a round: everyone sees the overall winner and every round's points.
+  if (b.a === 'endgame') {
+    if (p.id !== hostId(S)) return { err: 'Only the host can end the game', state: view(S, p) };
+    if (S.phase !== 'over' && S.phase !== 'invalid') return { err: 'Finish the round first', state: view(S, p) };
+    if (!S.history.length) return { err: 'Play at least one round first', state: view(S, p) };
+    clearTimeout(S.timer);
+    S.phase = 'final'; S.invalidated = null;
+    addLog(S, 'Game over after ' + S.history.length + ' round' + (S.history.length === 1 ? '' : 's'));
+    push(S); return { state: view(S, p) };
+  }
+  // From the final results: scores and history cleared, back to the lobby so people can join or leave.
+  if (b.a === 'newgame') {
+    if (p.id !== hostId(S)) return { err: 'Only the host can start a new game', state: view(S, p) };
+    if (S.phase !== 'final') return { err: 'End the game first', state: view(S, p) };
+    S.phase = 'lobby'; S.round = 0; S.history = []; S.turn = -1;
+    S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.removed = []; S.alerts = [];
+    S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; q.hand = []; q.place = 0; q.done = false; q.spectator = false; });
+    notify(S, 'New game! Scores are back to 0.', 'join');
     push(S); return { state: view(S, p) };
   }
   if (b.a === 'play') {
