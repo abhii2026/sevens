@@ -18,6 +18,10 @@ Env vars (all optional): `PORT` (3000), `PUBLIC_ORIGIN` (needed for the lobby's 
 
 `server.js` exports internals (`botChoose`, `heurChoose`, `evalMove`, `handPts`, `hasFourKings`, `canFinishInThree`, `createAppServer`, `rooms`, `byToken`, …) and only listens when run directly (`require.main === module`), so it can be `require`d from an ad-hoc script to exercise logic. Rooms also honor `S.forceDeck` (a 52-card array used for the next deal) and `S.invalidWaitMs` for deterministic testing.
 
+## Releases and rollback
+
+Each working release on `main` is tagged `vX.Y` (`git tag -n` lists them with a one-line summary): v1.0 Table talk, v1.1 UI refresh / equal deal / hardening, v1.2 instant Open table, v1.3 Pass button, v1.4 voice chat, v1.5 reload fix / Render setup / 5s pass. Tag each new release the same way. To roll production back without rewriting history: `git revert --no-edit <tag>..HEAD` then push (Render redeploys from `main`), or use the Rollback button on a past deploy in Render's dashboard. Voice runs on free public STUN only, with no TURN relay configured, by choice.
+
 ## Architecture
 
 **Transport:** client → server is `POST /api` with a JSON body `{ a: <action>, t: <token>, ... }`; server → client is Server-Sent Events on `GET /events?t=<token>`. There are no WebSockets. Actions in `act()`: `join`, `start`, `play`, `pass`, `chat`, `leave`, `skipwait`, `resetscores`, `voice`; plus `sig`, which is only accepted on `POST /rtc` (16 KB cap, its own rate bucket) and never on `/api`. `/api` enforces JSON content-type, same-origin `Origin`, a 2000-byte body cap, and per-IP rate limits; strict CSP headers mean the client must not load external resources. The CSP allows only the page's single inline `<script>`, pinned by a SHA-256 hash computed at startup, so **inline event-handler attributes (`onclick="…"`) and extra inline scripts will not run**; use `addEventListener`. `index.html` is served pre-compressed (brotli/gzip) with an ETag.
