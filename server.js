@@ -11,6 +11,8 @@ const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 // Hops of trusted reverse proxy in front of this process (0 = none: use the socket address).
 // Needed behind a proxy/PaaS, or every visitor shares one rate-limit bucket.
 const TRUST_PROXY = Math.max(0, parseInt(process.env.TRUST_PROXY, 10) || 0);
+// A connected player with no playable card gets PASS_MS to press Pass before it happens for them.
+const PASS_MS = +process.env.PASS_MS || 3000, AUTO_PASS_MS = 1200;
 const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
 
 // index.html is immutable for the life of the process: compress once, serve with an ETag.
@@ -165,7 +167,10 @@ function commonView(S) {
 // The private part: never contains another player's cards.
 function ownView(S, p) {
   const mine = S.phase === 'playing' && S.turn >= 0 && S.players[S.turn] === p;
-  return { you: p.id, hand: p.hand, legal: mine ? legal(S, p) : [], spec: p.spectator, place: p.place };
+  const l = mine ? legal(S, p) : [];
+  // ms left before an automatic pass, when it's your turn and nothing can be played
+  const pass = mine && !l.length && p.on && !p.bot ? Math.max(0, passDue(S, p).at - Date.now()) : 0;
+  return { you: p.id, hand: p.hand, legal: l, pass, spec: p.spectator, place: p.place };
 }
 function view(S, p) { return { ...ownView(S, p), ...commonView(S) }; }
 
@@ -209,12 +214,11 @@ function push(S) {
   if (!p.on && !p.bot) return;
   const l = legal(S, p);
   if (!l.length) {
+    const d = passDue(S, p);
     S.timer = setTimeout(() => {
       if (S.phase !== 'playing' || S.players[S.turn] !== p) return;
-      addLog(S, p.name + ' has no move and passes');
-      recordPass(S, p);
-      afterMove(S);
-    }, 1200);
+      doPass(S, p);
+    }, Math.max(0, d.at - Date.now()));
   } else if (!p.on && p.bot) {
     S.timer = setTimeout(() => {
       if (S.phase !== 'playing' || S.players[S.turn] !== p || p.on || !p.bot) return;
@@ -222,6 +226,21 @@ function push(S) {
       if (curLegal.length) play(S, p, botMove(S, p, curLegal));
     }, 1000);
   }
+}
+
+// The pass deadline for the current turn. A connected person gets PASS_MS to press Pass; bots pass quickly.
+function passDue(S, p) {
+  const seq = S.turnSeq || 0;
+  if (!S.passDue || S.passDue.seq !== seq || S.passDue.p !== p) {
+    S.passDue = { seq, p, at: Date.now() + (p.on && !p.bot ? PASS_MS : AUTO_PASS_MS) };
+  }
+  return S.passDue;
+}
+function doPass(S, p) {
+  S.passDue = null;
+  addLog(S, p.name + ' has no move and passes');
+  recordPass(S, p);
+  afterMove(S);
 }
 
 function addLog(S, t) { S.log.push(t); if (S.log.length > 30) S.log.shift(); }
@@ -431,13 +450,14 @@ function maybeLastThree(S) {
     if (!active(p) || p.hand.length !== 3 || p.lastThreeAlerted) continue;
     if (canFinishInThree(S, p.hand)) {
       p.lastThreeAlerted = true;
-      const msg = `⚡ Victory lap alert: The last three cards ${p.name} holds are sure to finish in the next three rounds — clutch your Kings and brace for impact!`;
+      const msg = `⚡ Victory lap! ${p.name} goes out in 3 turns.`;
       notify(S, msg);
     }
   }
 }
 
 function advance(S) {
+  S.turnSeq = (S.turnSeq || 0) + 1;
   const n = S.players.length;
   if (!n) { S.turn = -1; return; }
   const startIdx = S.turn >= 0 && S.turn < n ? S.turn : 0;
@@ -527,7 +547,7 @@ function start(S) {
   deck.forEach((c, i) => S.players[i % n].hand.push(c));
   S.players.forEach(p => p.hand.sort((a, b) => a - b));
   S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.log = [];
-  S.alerts = []; S.endAlerted = false; S.invalidated = null;
+  S.alerts = []; S.endAlerted = false; S.invalidated = null; S.passDue = null;
 
   // Case 1: Check if any player was assigned all 4 Kings (4 K's)
   const fourKHolder = S.players.find(p => hasFourKings(p.hand));
@@ -706,6 +726,11 @@ function act(b, ip) {
     if (S.phase !== 'playing' || S.players[S.turn] !== p) return { err: 'Not your turn', state: view(S, p) };
     if (!p.hand.includes(cid) || !canPlay(S, cid)) return { err: 'That card cannot be played', state: view(S, p) };
     play(S, p, cid); return { state: view(S, p) };
+  }
+  if (b.a === 'pass') {
+    if (S.phase !== 'playing' || S.players[S.turn] !== p) return { err: 'Not your turn', state: view(S, p) };
+    if (legal(S, p).length) return { err: 'You have a card you can play', state: view(S, p) };
+    doPass(S, p); return { state: view(S, p) };
   }
   if (b.a === 'skipwait') {
     if (p.id !== hostId(S)) return { err: 'Only the host can do that', state: view(S, p) };

@@ -382,6 +382,21 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   animation:turnGlow 2.2s ease-in-out infinite;
 }
 @keyframes turnGlow{50%{box-shadow:0 4px 24px rgba(var(--gold-rgb),.6)}}
+.banner.pass #bt{color:var(--text-2);font-weight:600;background:var(--glass);border-color:var(--line);box-shadow:none;animation:none}
+.pass-btn{
+  position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:8px;
+  height:30px;padding:0 14px;border-radius:999px;
+  font-size:13px;font-weight:700;color:var(--gold-ink);
+  background:var(--gold-btn);border:0;
+  box-shadow:0 4px 14px rgba(var(--gold-rgb),.35),inset 0 1px 0 rgba(255,255,255,.35);
+  animation:passIn .3s var(--ease);
+}
+.pass-btn span{min-width:.6em;font-variant-numeric:tabular-nums;opacity:.7}
+.pass-btn span:empty{display:none}
+.pass-btn i{position:absolute;left:0;bottom:0;height:3px;width:100%;background:rgba(36,23,3,.45);transform-origin:left;animation:passDrain var(--left,3000ms) linear forwards}
+.pass-btn[disabled]{opacity:.6}
+@keyframes passIn{from{opacity:0;transform:scale(.85)}}
+@keyframes passDrain{to{transform:scaleX(0)}}
 .banner.wait #bt{color:var(--danger-soft);font-weight:600;background:rgba(var(--danger-rgb),.14);border-color:rgba(var(--danger-rgb),.38);font-variant-numeric:tabular-nums}
 .hand{flex:none}
 .hl{position:relative;flex:none;height:calc(var(--hw)*1.4 + 16px)}
@@ -398,7 +413,7 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 }
 .hl .card.ok:active{scale:.96}
 .hl .card.no{cursor:default}
-.hl .card.no .face{filter:brightness(.7) saturate(.75)}
+
 .log{
   flex:none;margin-top:2px;min-height:15px;
   font-size:11.5px;font-style:italic;color:var(--faint);text-align:center;
@@ -1176,7 +1191,7 @@ body.round-over .chat-backdrop{z-index:255}
     <h2 id="rulesTitle">How to play</h2>
     <ol class="rules">
       <li><b>Deal.</b> The deck is dealt out so everyone holds the same number of cards. If 52 doesn't divide evenly, the lowest cards are set aside first: <b>A♠ A♥ A♦ A♣</b>, then the 2s. Whoever holds the <b>7♥</b> opens the round.</li>
-      <li><b>Build.</b> On your turn, play a <b>7</b> to open a suit, or the next card above or below a run already on the table. With nothing playable, you pass.</li>
+      <li><b>Build.</b> On your turn, play a <b>7</b> to open a suit, or the next card above or below a run already on the table. With nothing playable, tap <b>Pass</b>; after 3 seconds it passes for you.</li>
       <li><b>Finish.</b> The round ends the moment someone plays their last card.</li>
     </ol>
     <h3 class="rules-h">Scoring</h3>
@@ -1287,7 +1302,7 @@ try{
   }
 }catch(e){}
 const app=document.getElementById('app');
-let invUntil=0;
+let invUntil=0,passUntil=0;
 const stateSig=g=>g?JSON.stringify([g.phase,g.round,g.you,g.host,g.room,g.turn,g.last,g.spec,g.place,g.wait?g.wait.name:'',g.invalid,g.board,g.hand,g.legal,g.log,g.players]):'';
 
 function legacyCopy(txt){
@@ -1384,7 +1399,7 @@ function startPractice(playerName){
   deck.forEach((c,i)=>P_STATE.hands[i%4].push(c));
   P_STATE.hands.forEach(h=>h.sort((a,b)=>a-b));
   P_STATE.board=[null,null,null,null];P_STATE.started=false;P_STATE.places=0;P_STATE.last=-1;
-  P_STATE.alerted3={}; // reset per round, or a player alerted once is never alerted again
+  P_STATE.alerted3={};P_STATE.passDue=null;P_STATE.seq=(P_STATE.seq||0)+1; // reset per round, or a player alerted once is never alerted again
   P_STATE.turn=P_STATE.hands.findIndex(h=>h.includes(19));
   const prevScores=isNew?[0,0,0,0]:P_STATE.players.map(p=>p.score||0);
   P_STATE.players=names.map((n,i)=>({id:i+1,name:n,n:13,on:true,bot:i>0,place:0,spec:false,score:prevScores[i],roundPts:0,leftCards:[]}));
@@ -1425,19 +1440,18 @@ function syncPracticeView(){
     turn:P_STATE.turn>=0?P_STATE.players[P_STATE.turn].id:null,
     hand:[...P_STATE.hands[0]],
     legal:P_STATE.turn===0?pLegal(0):[],
+    pass:phase==='playing'&&P_STATE.turn===0&&!pLegal(0).length?Math.max(0,pPassDue(0)-Date.now()):0,
     last:P_STATE.last,log:P_STATE.log.slice(-5),spec:false,place:P_STATE.players[0].place,
     chat:P_STATE.chat.slice(-40),alert:null,wait:null
   };
+  passUntil=G.pass?Date.now()+G.pass:0;
   const sig=stateSig(G);
   if(sig!==lastSig){lastSig=sig;render()}else paintChat();
   clearTimeout(practiceTimer);
   if(phase==='playing'&&P_STATE.turn>=0){
     const t=P_STATE.turn,leg=pLegal(t);
     if(!leg.length){
-      practiceTimer=setTimeout(()=>{
-        P_STATE.log.push(`${P_STATE.players[t].name} has no move and passes`);
-        pAdvance();syncPracticeView();
-      },900);
+      practiceTimer=setTimeout(()=>pDoPass(t),Math.max(0,pPassDue(t)-Date.now()));
     }else if(t>0){
       practiceTimer=setTimeout(()=>{
         const h=P_STATE.hands[t];
@@ -1448,7 +1462,18 @@ function syncPracticeView(){
   }
 }
 function pAdvance(){
-  P_STATE.turn=(P_STATE.turn+1)%4;
+  P_STATE.turn=(P_STATE.turn+1)%4;P_STATE.seq=(P_STATE.seq||0)+1;
+}
+// pass deadline for the current turn: you get 3s to tap Pass, bots pass quickly
+function pPassDue(t){
+  const d=P_STATE.passDue;
+  if(!d||d.seq!==(P_STATE.seq||0))P_STATE.passDue={seq:P_STATE.seq||0,at:Date.now()+(t===0?3000:900)};
+  return P_STATE.passDue.at;
+}
+function pDoPass(t){
+  P_STATE.passDue=null;
+  P_STATE.log.push(`${P_STATE.players[t].name} has no move and passes`);
+  pAdvance();syncPracticeView();
 }
 function pPlay(idx,id){
   const h=P_STATE.hands[idx];h.splice(h.indexOf(id),1);
@@ -1468,7 +1493,7 @@ function pPlay(idx,id){
   P_STATE.players.forEach((pl,pi)=>{
     if(P_STATE.hands[pi].length===3&&!P_STATE.alerted3[pl.id]&&pCanFinishInThree(P_STATE.board,P_STATE.started,P_STATE.hands[pi])){
       P_STATE.alerted3[pl.id]=true;
-      const msg=`⚡ Victory lap alert: The last three cards ${pl.name} holds are sure to finish in the next three rounds — clutch your Kings and brace for impact!`;
+      const msg=`⚡ Victory lap! ${pl.name} goes out in 3 turns.`;
       P_STATE.chat.push({id:++P_STATE.chatSeq,name:'',text:msg,sys:true,kind:''});
       msgs.push(msg);
     }
@@ -1481,6 +1506,7 @@ function applyIncomingState(nextG){
   const prevLast=G?G.last:-1;
   G=nextG;
   waitUntil=G.wait?Date.now()+G.wait.left*1000:0;
+  passUntil=G.pass?Date.now()+G.pass:0;
   invUntil=G.invalid&&!G.invalid.canDeal?Date.now()+G.invalid.left*1000:0;
   const want=roomFromUrl();
   if(want && G.room!==want){if(es)es.close();T='';setStore('sevensT',null);G=null;lastSig='';render();return}
@@ -1503,6 +1529,10 @@ async function api(b){
   if(practiceMode){
     if(b.a==='play'&&P_STATE.turn===0&&pLegal(0).includes(b.id)){pPlay(0,b.id);return {}}
     if(b.a==='start'){startPractice(P_STATE.players[0]&&P_STATE.players[0].name!=='You'?P_STATE.players[0].name:'');return {}}
+    if(b.a==='pass'){
+      if(P_STATE.turn===0&&!pLegal(0).length){pDoPass(0);return {}}
+      return {err:'You have a card you can play'};
+    }
     if(b.a==='resetscores'){
       P_STATE.round=0;P_STATE.players.forEach(p=>{p.score=0;p.roundPts=0;p.leftCards=[]});
       toast('Scores reset to 0');startPractice(P_STATE.players[0]&&P_STATE.players[0].name!=='You'?P_STATE.players[0].name:'');return {};
@@ -1534,12 +1564,15 @@ let alertQ=[],alertBusy=false;
 function queueAlerts(msgs){alertQ.push(...msgs);if(!alertBusy)nextAlert()}
 function nextAlert(){
   if(!alertQ.length){alertBusy=false;return}
-  alertBusy=true;toast(alertQ.shift());setTimeout(nextAlert,3600);
+  alertBusy=true;setTimeout(nextAlert,toast(alertQ.shift())+150);
 }
+// on screen long enough to read: about 60ms per character, 2.5s to 6s; returns the time shown
 function toast(m){
   document.querySelectorAll('.toast').forEach(t=>t.remove());
   const d=document.createElement('div');d.className='toast';d.setAttribute('role','status');d.textContent=m;
-  document.body.appendChild(d);setTimeout(()=>d.classList.add('out'),3200);setTimeout(()=>d.remove(),3500);
+  const ms=Math.max(2500,Math.min(6000,String(m).length*60));
+  document.body.appendChild(d);setTimeout(()=>d.classList.add('out'),ms-300);setTimeout(()=>d.remove(),ms);
+  return ms;
 }
 
 function connect(){
@@ -1595,9 +1628,10 @@ async function join(){
   history.replaceState(null,'','?r='+r.room);connect();
 }
 
-function tap(id){
+function tap(id,el){
   if(!G||!G.legal.includes(id)){
-    return toast(G&&G.turn===G.you?'That card cannot be played now':'Wait for your turn');
+    if(el&&!calm())el.animate([{transform:'none'},{transform:'translateX(-5px)'},{transform:'translateX(5px)'},{transform:'translateX(-3px)'},{transform:'none'}],{duration:260});
+    return toast(G&&G.turn===G.you?(G.legal.length?'That card can\u2019t be played yet':'No card to play. Tap Pass.'):'Wait for your turn');
   }
   api({a:'play',id}).then(r=>r&&r.err&&toast(r.err));
 }
@@ -1910,14 +1944,15 @@ document.addEventListener('click',async e=>{
     if(chatOpen)setTimeout(()=>{const m=document.getElementById('chatMsgs');if(m)m.scrollTop=m.scrollHeight},0);
     return;
   }
-  const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c);
-  const a=e.target.closest('[data-a]');if(a){const r=await api({a:a.dataset.a});if(r&&r.err)toast(r.err);return}
+  const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c,c);
+  const a=e.target.closest('[data-a]');if(a&&a.id==='passBtn'){a.disabled=true;passUntil=0}
+  if(a){const r=await api({a:a.dataset.a});if(r&&r.err)toast(r.err);return}
 });
 
 app.onkeydown=e=>{
   if(e.key==='Enter'&&(e.target.id==='nm'||e.target.id==='rm'))return join();
   if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('.hl [data-c]')){
-    e.preventDefault();tap(+e.target.dataset.c);
+    e.preventDefault();tap(+e.target.dataset.c,e.target);
   }
 };
 
@@ -2158,11 +2193,18 @@ function banner(){
   if(G.wait)return[`Waiting for ${esc(G.wait.name)} to reconnect… ${mmss()}`,'wait'];
   if(G.spec)return['Joined mid-round — you will be dealt in next round',''];
   if(G.turn===G.you){
-    if(!G.legal.length)return['No playable card — passing…','me'];
+    if(!G.legal.length)return['No card to play','me pass'];
     const first=G.board.every(b=>!b);
     return[first?'Tap 7♥ to start the round':'Your turn — tap a highlighted card to play','me'];
   }
   return[cur?`${esc(cur.name)}\u2019s turn`:'',''];
+}
+
+// Shown on your turn when nothing is playable. The bar drains over the time left; at zero the pass happens for you.
+function passBtn(){
+  if(G.phase!=='playing'||G.turn!==G.you||G.legal.length)return '';
+  const left=Math.max(0,passUntil-Date.now());
+  return `<button id="passBtn" class="pass-btn" data-a="pass" type="button" style="--left:${left}ms">Pass<span id="passSec">${Math.ceil(left/1000)||''}</span><i aria-hidden="true"></i></button>`;
 }
 
 function handHTML(per){
@@ -2397,7 +2439,7 @@ function table(){
       <div class="players">${chips}${(G.removed||[]).length?`<div class="pl aside" title="Set aside this round so every hand is the same size"><span class="pl-meta">Set aside</span>${G.removed.map(c=>miniCardBadge(c)).join('')}</div>`:''}</div>
       <div class="board"><div class="bi ${wide?'w':''}">${board}</div></div>
       <div class="banner ${cls}">
-        <span id="bt">${msg}</span>${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait" type="button">Skip wait</button>':''}
+        <span id="bt">${msg}</span>${passBtn()}${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait" type="button">Skip wait</button>':''}
       </div>
       <div class="hand"></div>
       <div class="log">${esc(G.log[G.log.length-1]||'')}</div>
@@ -2441,12 +2483,14 @@ function fit(){
     const cs=[...line.children].filter(c=>c.classList.contains('card'));if(!cs.length)return;
     const av=line.clientWidth,w=cs[0].offsetWidth,n=cs.length,hand=line.dataset.fit==='h';
     const step=n>1?Math.min(w+(hand?10:6),(av-w)/(n-1)):0,off=hand?(av-((n-1)*step+w))/2:0;
-    // playable cards sit above their unplayable neighbours so the highlight is never covered
-    cs.forEach((c,i)=>{c.style.left=off+i*step+'px';c.style.zIndex=(c.classList.contains('ok')?100:0)+i});
+    // natural order keeps every card's corner index readable; playable cards are lifted, not brought forward
+    cs.forEach((c,i)=>{c.style.left=off+i*step+'px';c.style.zIndex=i});
   });
 }
 
 setInterval(()=>{
+  const ps=document.getElementById('passSec');
+  if(ps)ps.textContent=Math.ceil(Math.max(0,passUntil-Date.now())/1000)||'';
   const b=document.getElementById('bt');
   if(b&&G&&G.wait)b.textContent='Waiting for '+G.wait.name+' to reconnect… '+mmss();
   const invEl=document.getElementById('invStatus');
@@ -2454,7 +2498,7 @@ setInterval(()=>{
     const sLeft=Math.max(0,Math.ceil((invUntil-Date.now())/1000));
     if(sLeft>0)invEl.textContent=`Waiting ${sLeft}s before redealing…`;
   }
-},500);
+},200);
 async function keepAwake(){try{if(G&&G.phase==='playing'&&'wakeLock' in navigator&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}catch(e){}}
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
