@@ -23,16 +23,6 @@ const FORCE_HTTPS = env('FORCE_HTTPS', PUBLIC_ORIGIN.startsWith('https://') && T
 // A connected player with no playable card gets PASS_MS to press Pass before it happens for them.
 const PASS_MS = +process.env.PASS_MS || 5000, AUTO_PASS_MS = 1200;
 const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
-// Voice chat is peer-to-peer WebRTC: this server only relays each pair's offer/answer (POST /rtc, up to SIG_MAX bytes).
-// STUN (free, public by default) lets most browsers find each other; TURN is an optional relay for strict networks.
-const SIG_MAX = 16000, SDP_MAX = 15000;
-const csv = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
-const STUN_URLS = csv(process.env.STUN_URLS != null ? process.env.STUN_URLS : 'stun:stun.l.google.com:19302,stun:stun.cloudflare.com:3478');
-const TURN_URLS = csv(process.env.TURN_URLS), TURN_SECRET = process.env.TURN_SECRET || '';
-const TURN_USER = process.env.TURN_USER || '', TURN_PASS = process.env.TURN_PASS || '';
-// Cloudflare's hosted TURN relay: the server trades the key for short-lived credentials and shares them.
-const CF_TURN_KEY_ID = process.env.CF_TURN_KEY_ID || '', CF_TURN_API_TOKEN = process.env.CF_TURN_API_TOKEN || '';
-const CF_TURN_TTL = 6 * 3600, CF_TURN_REFRESH_MS = 3600 * 1000;
 
 // index.html is immutable for the life of the process: compress once, serve with an ETag.
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'));
@@ -49,7 +39,7 @@ const SEC_HEADERS = {
   'X-Frame-Options': 'DENY',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
-  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   'Content-Security-Policy': "default-src 'self'; script-src 'self' " + (SCRIPT_HASHES.length ? SCRIPT_HASHES.join(' ') : "'unsafe-inline'")
     + "; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 };
@@ -112,53 +102,6 @@ function removedFor(n) {
   const out = [];
   for (let i = 0, k = n > 0 ? 52 % n : 0; i < k; i++) out.push((i % 4) * 13 + (i / 4 | 0));
   return out;
-}
-
-// ICE servers handed to a player when they join voice. With TURN_SECRET (coturn `use-auth-secret`)
-// each player gets a 12-hour credential; TURN_USER/TURN_PASS are static and visible to every player.
-function iceServers(p) {
-  const out = [];
-  if (STUN_URLS.length) out.push({ urls: STUN_URLS });
-  if (TURN_URLS.length && TURN_SECRET) {
-    const username = (Math.floor(Date.now() / 1000) + 12 * 3600) + ':' + p.id;
-    out.push({ urls: TURN_URLS, username, credential: crypto.createHmac('sha1', TURN_SECRET).update(username).digest('base64') });
-  } else if (TURN_URLS.length && TURN_USER) out.push({ urls: TURN_URLS, username: TURN_USER, credential: TURN_PASS });
-  if (CF_TURN_KEY_ID) {
-    if (Date.now() - cfIce.at > CF_TURN_REFRESH_MS) refreshCfIce(); // the cached ones stay valid for hours yet
-    out.push(...cfIce.servers);
-  }
-  return out;
-}
-const cfIce = { servers: [], at: 0, busy: false };
-async function refreshCfIce() {
-  if (!CF_TURN_KEY_ID || !CF_TURN_API_TOKEN || cfIce.busy) return;
-  cfIce.busy = true;
-  try {
-    const r = await fetch('https://rtc.live.cloudflare.com/v1/turn/keys/' + encodeURIComponent(CF_TURN_KEY_ID) + '/credentials/generate-ice-servers', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + CF_TURN_API_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ttl: CF_TURN_TTL }), signal: AbortSignal.timeout(8000)
-    });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const j = await r.json();
-    // browsers block port 53, and without trickle ICE a dead URL only adds a timeout
-    cfIce.servers = [].concat(j.iceServers || []).filter(s => s && s.urls).map(s => {
-      const o = { urls: [].concat(s.urls).filter(u => typeof u === 'string' && !/:53(\?|$)/.test(u)) };
-      if (s.username) { o.username = String(s.username); o.credential = String(s.credential || ''); }
-      return o;
-    }).filter(s => s.urls.length);
-    cfIce.at = Date.now();
-  } catch (e) {
-    console.warn('Cloudflare TURN: could not get credentials (' + e.message + '); voice falls back to STUN only.');
-    cfIce.at = Date.now() - CF_TURN_REFRESH_MS + 60000; // try again in a minute
-  }
-  cfIce.busy = false;
-}
-// A player's voice session number. It changes whenever they (re)join voice or reconnect, which tells
-// every peer to rebuild its connection to them. 0 = not in voice (or not connected).
-const voiceOf = q => (q.on && q.voice ? q.vs : 0);
-function markOn(p) {
-  if (!p.on && p.voice) p.vs++; // coming back: peers must reconnect
-  p.on = true;
 }
 
 function newCode() {
@@ -230,7 +173,6 @@ function commonView(S) {
       place: q.place, spec: q.spectator,
       score: q.score || 0,
       roundPts: q.roundPts || 0,
-      voice: voiceOf(q), vmute: !!(q.voice && q.vmute),
       leftCards: S.phase === 'over' ? (q.leftCards || []) : []
     })),
     board: S.board, turn: cur ? cur.id : null, removed: S.removed || [],
@@ -753,7 +695,7 @@ function join(b, ip) {
   let nm = base, k = 2;
   const rootPrefix = root.slice(0, 11).trim();
   while (S.players.some(x => x.name.toLowerCase() === nm.toLowerCase())) nm = rootPrefix + ' ' + k++;
-  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), cid, baseName: baseKey, name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing', joinedOnce: false, voice: false, vmute: false, vs: 0 };
+  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), cid, baseName: baseKey, name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing', joinedOnce: false };
   S.players.push(p);
   byToken.set(p.t, { S, p });
   p.dtimer = setTimeout(() => {
@@ -768,25 +710,15 @@ function join(b, ip) {
   return { t: p.t, room: S.code, name: p.name, state: joinedState(S, p) };
 }
 
-function act(b, ip, rtc) {
+function act(b, ip) {
   if (!b || typeof b !== 'object' || Array.isArray(b)) return { err: 'Bad request' };
-  if ((b.a === 'sig') !== !!rtc) return { err: 'Bad request' }; // signals go to /rtc, everything else to /api
   if (b.a === 'join') return join(b, ip);
   const rec = b.t ? byToken.get(String(b.t)) : null;
   if (!rec) return { err: 'Not joined' };
   const { S, p } = rec;
-  if (b.a === 'sig') return signal(S, p, b);
   if (b.a !== 'leave' && (!p.on || p.bot)) {
-    markOn(p); p.bot = false; p.left = false; p.deadline = 0;
+    p.on = true; p.bot = false; p.left = false; p.deadline = 0;
     clearTimeout(p.dtimer); clearTimeout(p.btimer);
-  }
-  if (b.a === 'voice') {
-    if (b.on) {
-      if (!p.voice) { p.voice = true; p.vs++; }
-      p.vmute = !!b.mute;
-    } else { p.voice = false; p.vmute = false; }
-    push(S);
-    return { state: view(S, p), ice: b.on ? iceServers(p) : undefined };
   }
   if (b.a === 'start') {
     if (p.id !== hostId(S)) return { err: 'Only the host can deal', state: view(S, p) };
@@ -826,7 +758,6 @@ function act(b, ip, rtc) {
     push(S); return { state: view(S, p) };
   }
   if (b.a === 'leave') {
-    p.voice = false; p.vmute = false;
     const othersOnline = S.players.some(x => x !== p && x.on && !x.left);
     if (!othersOnline) {
       dropRoom(S);
@@ -861,21 +792,6 @@ function act(b, ip, rtc) {
     addChat(S, p.name, text, false); push(S); return { state: view(S, p) };
   }
   return { err: 'Unknown action' };
-}
-
-// Relays one WebRTC offer/answer to one player at the same table, as an SSE `sig` event.
-// Nothing is stored; both ends must be connected and in voice.
-function signal(S, p, b) {
-  if (!hit('sig:' + p.t, 40, 10000)) return { err: 'Too many requests. Please slow down.' };
-  if (!p.on || !p.voice) return { err: 'Join voice first' };
-  const to = S.players.find(q => q.id === b.to);
-  if (!to || to === p || !voiceOf(to)) return { err: 'That player is not in voice' };
-  const d = b.d && typeof b.d === 'object' ? b.d : {};
-  if ((d.type !== 'offer' && d.type !== 'answer') || typeof d.sdp !== 'string' || !d.sdp || d.sdp.length > SDP_MAX) return { err: 'Bad signal' };
-  const tv = Number.isInteger(b.tv) ? b.tv : 0;
-  const msg = 'event: sig\ndata: ' + JSON.stringify({ from: p.id, fv: p.vs, tv, type: d.type, sdp: d.sdp }) + '\n\n';
-  for (const res of conns.get(to.t) || []) sseWrite(res, msg);
-  return {};
 }
 
 function json(res, status, obj) {
@@ -921,7 +837,7 @@ function handle(req, res) {
     // a token can only hold a few streams (tabs); the oldest is closed first
     while (streams.size > SSE_PER_TOKEN) { const old = streams.values().next().value; streams.delete(old); old.destroy(); }
     const was = !p.on;
-    markOn(p); p.left = false; p.bot = false; p.deadline = 0;
+    p.on = true; p.left = false; p.bot = false; p.deadline = 0;
     clearTimeout(S.idle); clearTimeout(p.dtimer); clearTimeout(p.btimer);
     if (!p.joinedOnce) {
       p.joinedOnce = true;
@@ -965,11 +881,9 @@ function handle(req, res) {
     });
     return push(S);
   }
-  if (req.method === 'POST' && (u.pathname === '/api' || u.pathname === '/rtc')) {
+  if (req.method === 'POST' && u.pathname === '/api') {
     warnIfProxied(req);
-    const rtc = u.pathname === '/rtc', cap = rtc ? SIG_MAX : BODY_MAX;
-    // signalling has its own bucket so joining voice at a full table can't starve game moves
-    if (rtc ? !hit('rtc:' + clientIp(req), 150, 10000) : !checkRate(req, 60, 10000)) { res.setHeader('Retry-After', '10'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
+    if (!checkRate(req, 60, 10000)) { res.setHeader('Retry-After', '10'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
     const ct = String(req.headers['content-type'] || '').toLowerCase();
     if (!ct.includes('application/json')) return json(res, 415, { err: 'Expected application/json' });
     const origin = req.headers.origin;
@@ -980,19 +894,19 @@ function handle(req, res) {
         return json(res, 400, { err: 'Invalid origin' });
       }
     }
-    if (+req.headers['content-length'] > cap) { res.setHeader('Connection', 'close'); return json(res, 413, { err: 'Request too large' }); }
+    if (+req.headers['content-length'] > BODY_MAX) { res.setHeader('Connection', 'close'); return json(res, 413, { err: 'Request too large' }); }
     const ip = clientIp(req);
     let body = '', aborted = false;
     req.setEncoding('utf8');
     req.on('error', () => { aborted = true; });
     req.on('data', c => {
       body += c;
-      if (body.length > cap) { aborted = true; req.destroy(); }
+      if (body.length > BODY_MAX) { aborted = true; req.destroy(); }
     });
     req.on('end', () => {
       if (aborted) return;
       let out;
-      try { out = act(JSON.parse(body), ip, rtc); } catch (e) { out = { err: 'Bad request' }; }
+      try { out = act(JSON.parse(body), ip); } catch (e) { out = { err: 'Bad request' }; }
       json(res, 200, out);
     });
     return;
@@ -1025,9 +939,8 @@ if (require.main === module) {
     console.log('\n  Share the table link shown in the lobby (/?r=CODE). Empty rooms close after 1 minute.\n');
     if (PUBLIC_ORIGIN) console.log('  Public address: ' + PUBLIC_ORIGIN + (FORCE_HTTPS ? ' (http redirects to https)' : ''));
     if (ON_RENDER) console.log('  Render detected: TRUST_PROXY=' + TRUST_PROXY + ', client IP header: ' + (CLIENT_IP_HEADER || 'none'));
-    console.log('  Voice relay (TURN): ' + (CF_TURN_KEY_ID ? 'Cloudflare' : TURN_URLS.length ? 'TURN_URLS' : 'none, STUN only') + '\n');
+    console.log('');
   });
-  refreshCfIce();
   const beat = setInterval(() => {
     for (const set of conns.values()) for (const r of set) sseWrite(r, ': hb\n\n');
     const now = Date.now();
