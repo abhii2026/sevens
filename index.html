@@ -511,112 +511,91 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .chat form button{flex:none;width:40px;height:40px;padding:0;border-radius:50%}
 .chat form button svg{width:17px;height:17px;fill:currentColor;margin-left:2px}
 
-/* ================= ROUND-OVER SCORECARD ================= */
+/* ================= RESULTS CARDS (round results + final results) ================= */
+/* Calm and flat: a winner summary, one ranked list, then actions. Numbers right-aligned, one line per row. */
 .sc{
-  position:relative;z-index:1;isolation:isolate;overflow:hidden;
-  width:100%;max-width:420px;
+  position:relative;z-index:1;overflow:hidden;
+  width:100%;max-width:440px;
   max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);
-  display:flex;flex-direction:column;text-align:center;
-  padding:clamp(18px,2.8dvh,26px) clamp(16px,3vw,22px) clamp(14px,2.2dvh,20px);
-  border-radius:28px;border:1px solid transparent;
+  display:flex;flex-direction:column;
+  padding:clamp(16px,2.6dvh,22px) clamp(14px,3vw,20px) clamp(14px,2.2dvh,18px);
+  border-radius:24px;border:1px solid transparent;
   background:
-    linear-gradient(180deg,#173629 0%,#10251d 40%,#0a1612 100%) padding-box,
-    linear-gradient(180deg,rgba(255,226,160,.6) 0%,rgba(255,226,160,.14) 28%,rgba(255,255,255,.05) 60%,rgba(255,255,255,.07) 100%) border-box;
-  box-shadow:0 40px 90px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,240,200,.18);
-}
-.sc::before{ /* warm stage light on the champion */
-  content:"";position:absolute;z-index:-1;left:50%;top:-34%;width:150%;height:80%;transform:translateX(-50%);
-  background:radial-gradient(ellipse 46% 58% at 50% 46%,rgba(255,214,140,.30) 0%,rgba(255,214,140,.09) 45%,transparent 72%);
-  pointer-events:none;
-}
-.sc::after{ /* soft floor shading */
-  content:"";position:absolute;z-index:-1;left:0;right:0;bottom:0;height:45%;
-  background:linear-gradient(180deg,transparent,rgba(0,0,0,.3));pointer-events:none;
+    linear-gradient(180deg,#152f25 0%,#0f221b 55%,#0b1813 100%) padding-box,
+    linear-gradient(180deg,rgba(255,226,160,.42) 0%,rgba(255,255,255,.07) 38%,rgba(255,255,255,.05) 100%) border-box;
+  box-shadow:0 30px 80px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,240,200,.1);
 }
 .sc-round{
-  align-self:center;padding:6px 12px;border-radius:999px;
-  font:700 10px/1 var(--sans);letter-spacing:.22em;text-transform:uppercase;color:rgba(255,231,168,.85);
-  background:rgba(255,226,160,.07);border:1px solid rgba(255,226,160,.2);
+  align-self:center;flex:none;padding:6px 12px;border-radius:999px;
+  font:700 10px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--gold-dim);
+  background:rgba(var(--gold-rgb),.07);border:1px solid rgba(var(--gold-rgb),.2);
 }
 
-/* champion */
-.sc-champ{position:relative;display:flex;flex-direction:column;align-items:center;margin-top:clamp(12px,2.2dvh,20px)}
-.sc-crown{width:52px;height:42px;filter:drop-shadow(0 6px 14px rgba(var(--gold-rgb),.5))}
-.sc-label{
-  margin-top:10px;padding-left:.34em;
-  font:700 10px/1 var(--sans);letter-spacing:.34em;text-transform:uppercase;color:rgba(255,226,160,.72);
+/* winner summary */
+.sc-hero{
+  flex:none;display:flex;align-items:center;gap:14px;margin-top:clamp(12px,2dvh,16px);padding:12px 14px;
+  border-radius:18px;text-align:left;
+  background:linear-gradient(100deg,rgba(var(--gold-rgb),.14),rgba(var(--gold-rgb),.03) 70%);
+  border:1px solid rgba(var(--gold-rgb),.24);
 }
-.sc-champ-name{
-  margin:8px 0 0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font:700 clamp(34px,8.6vw,46px)/1.12 var(--serif);letter-spacing:-.015em;padding:0 .05em .04em;
-  background:linear-gradient(105deg,var(--gold-2) 0%,var(--gold-1) 28%,#fffaf0 42%,var(--gold-1) 52%,var(--gold-2) 72%,var(--gold-3) 100%);
-  background-size:260% 100%;background-position:100% 0;
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-  filter:drop-shadow(0 8px 24px rgba(var(--gold-rgb),.3));
-  animation:nameShimmer 5s ease-in-out infinite 1.4s;
-}
-@keyframes nameShimmer{0%,55%{background-position:100% 0}100%{background-position:0 0}}
-.sc-champ-sub{margin-top:6px;font-size:13px;color:var(--muted)}
-.sc-champ-sub b{color:var(--gold-1);font-weight:700;font-variant-numeric:tabular-nums}
+.sc-hero-av{position:relative;flex:none}
+.sc-hero-av .lb-av{width:52px;height:52px;font-size:22px;box-shadow:0 0 0 2px rgba(var(--gold-rgb),.7),0 6px 16px rgba(0,0,0,.35)}
+.sc-hero-av svg{position:absolute;left:50%;top:-13px;width:26px;height:21px;transform:translateX(-50%) rotate(-8deg);filter:drop-shadow(0 2px 4px rgba(0,0,0,.4))}
+.sc-hero-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.sc-eyebrow{font:700 9.5px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--gold-dim)}
+.sc-hero-name{margin:0;font:700 clamp(22px,6vw,27px)/1.15 var(--serif);color:var(--gold-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-hero-sub{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-hero-sub b{color:var(--text-2);font-weight:600}
+.sc-hero-num{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-variant-numeric:tabular-nums}
+.sc-hero-num b{font:700 28px/1 var(--serif);color:var(--gold-1)}
+.sc-hero-num small{font-size:10.5px;color:var(--faint)}
 
-/* standings */
-.sc-divider{flex:none;height:1px;margin:clamp(14px,2.4dvh,22px) 6px clamp(8px,1.4dvh,12px);background:linear-gradient(90deg,transparent,rgba(255,226,160,.35),transparent)}
-.sc-head{flex:none;display:flex;justify-content:space-between;padding:0 12px 6px;font:700 9.5px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--faint)}
-.sc-list{
-  list-style:none;margin:0;padding:0;flex:1 1 auto;min-height:60px;overflow-y:auto;overscroll-behavior:contain;
-  display:flex;flex-direction:column;gap:2px;text-align:left;
+/* ranked list */
+.sc-head{flex:none;display:flex;justify-content:space-between;padding:clamp(12px,2dvh,16px) 8px 6px;font:700 9.5px/1 var(--sans);letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+.sc-list{list-style:none;margin:0;padding:0;flex:1 1 auto;min-height:56px;overflow-y:auto;overscroll-behavior:contain;text-align:left}
+.res-item+.res-item{border-top:1px solid rgba(255,255,255,.06)}
+.res-row{
+  width:100%;display:grid;grid-template-columns:18px 36px minmax(0,1fr) auto;align-items:center;gap:10px;
+  padding:9px 8px;margin:0;border:0;border-radius:12px;background:none;color:inherit;font:inherit;text-align:left;
 }
-.sc-row{position:relative;flex:none;display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:14px}
-.sc-row+.sc-row::before{content:"";position:absolute;left:12px;right:12px;top:-1px;height:1px;background:rgba(255,255,255,.06)}
-.sc-row.win{background:linear-gradient(90deg,rgba(var(--gold-rgb),.17),rgba(var(--gold-rgb),.03));box-shadow:inset 0 0 0 1px rgba(var(--gold-rgb),.3)}
-.sc-row.win+.sc-row::before{display:none}
-.sc-rank{
-  flex:none;width:20px;text-align:center;
-  font:700 12px/1 var(--sans);color:var(--faint);font-variant-numeric:tabular-nums;
-}
-.sc-rank.r1{color:var(--gold-1)}.sc-rank.r2{color:#d5dde0}.sc-rank.r3{color:#e3a77a}
-.sc-row .lb-av{width:34px;height:34px;font-size:15px}
-.sc-row.win .lb-av{box-shadow:0 0 0 2px rgba(var(--gold-rgb),.75),0 4px 12px rgba(var(--gold-rgb),.25)}
-.sc-who{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-.sc-who>b{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;font-weight:600;color:var(--text)}
-.sc-who>b>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-who>b small{flex:none;font-size:10.5px;color:var(--gold-2);font-weight:600}
-.sc-tag{flex:none;font-style:normal;font:700 8.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--danger-soft);background:rgba(var(--danger-rgb),.12);padding:3px 6px;border-radius:999px}
-.sc-left{display:flex;flex-wrap:wrap;gap:3px;align-items:center;font-size:11px;color:var(--muted)}
-.sc-left .mini-card{padding:1px 4px;font-size:10.5px;box-shadow:none}
-.sc-left .mini-card small{display:none}
-.sc-left.out{color:var(--ok-soft)}
-.sc-pts{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-variant-numeric:tabular-nums}
-.sc-pts b{font:700 20px/1 var(--serif);color:var(--text)}
-.sc-pts small{font-size:10.5px;color:var(--faint)}
-.sc-row.win .sc-pts b{color:var(--gold-1)}
-.sc-row.lose .sc-pts b{color:var(--danger-soft)}
-.sc-roast{flex:none;margin:10px 8px 0;font-size:12.5px;line-height:1.4;color:var(--muted);font-style:italic}
-.sc-roast b{font-style:normal;font-weight:600;color:var(--text-2)}
-/* final results: a little wider, standings + a round-by-round grid share the height */
-.sc.final{max-width:520px}
-.sc-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin:0 -4px;padding:0 4px} /* standings + grid scroll together */
-.sc.final .sc-list{flex:none;overflow:visible}
-.sc-key{color:var(--ok-soft);letter-spacing:.12em}
-.sc-tag.gone{color:var(--muted);background:rgba(255,255,255,.07)}
-.sc-grid-head{margin-top:clamp(10px,1.8dvh,14px)}
-.sc-grid{
-  overflow-x:auto;
-  border-radius:14px;border:1px solid var(--line);background:rgba(6,12,10,.42);
-}
-.sc-grid table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text-2)}
-.sc-grid th,.sc-grid td{padding:7px 10px;text-align:right;white-space:nowrap}
-.sc-grid thead th{position:sticky;top:0;z-index:1;background:#0f211a;font:700 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
-.sc-grid th[scope=row],.sc-grid thead th:first-child{position:sticky;left:0;text-align:left;background:#0f211a;font-weight:600;color:var(--text);max-width:9em;overflow:hidden;text-overflow:ellipsis}
-.sc-grid thead th:first-child{z-index:2}
-.sc-grid tbody tr+tr{border-top:1px solid rgba(255,255,255,.05)}
-.sc-grid tr.me th[scope=row]{color:var(--gold-1)}
-.sc-grid td.best{color:var(--ok-soft);font-weight:700}
-.sc-grid td.na{color:var(--faint)}
-.sc-grid td.tot{font-weight:700;color:var(--gold-1);border-left:1px solid var(--line)}
+button.res-row{grid-template-columns:18px 36px minmax(0,1fr) auto 14px;cursor:pointer;transition:background .15s}
+button.res-row:hover{background:rgba(255,255,255,.035)}
+button.res-row:focus-visible{outline:2px solid var(--gold-2);outline-offset:-2px}
+.res-item.win .res-row{background:rgba(var(--gold-rgb),.08)}
+.res-rank{font:700 12px/1 var(--sans);color:var(--faint);text-align:center;font-variant-numeric:tabular-nums}
+.res-item.win .res-rank{color:var(--gold-1)}
+.res-row .lb-av{width:36px;height:36px;font-size:15px;box-shadow:inset 0 0 0 1px hsl(var(--h) 55% 60% / .4)}
+.res-who{min-width:0;display:flex;flex-direction:column;gap:4px}
+.res-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;font-weight:600;color:var(--text)}
+.res-name>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.res-name small{flex:none;font-size:10.5px;font-weight:600;color:var(--gold-2)}
+.sc-tag{flex:none;font-style:normal;font:700 8.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;padding:3px 6px;border-radius:999px;color:var(--muted);background:rgba(255,255,255,.07)}
+/* one line, always: leftover cards are capped with a "+N" chip */
+.res-meta{display:flex;align-items:center;gap:3px;min-width:0;overflow:hidden;white-space:nowrap;font-size:11.5px;color:var(--muted)}
+.res-meta.ok{color:var(--ok-soft)}
+.res-meta .mini-card{flex:none;padding:1px 4px;font-size:10.5px;box-shadow:none}
+.res-meta .mini-card small{display:none}
+.res-more{flex:none;padding:1px 5px;border-radius:4px;font-size:10.5px;font-weight:700;color:var(--text-2);background:rgba(255,255,255,.08)}
+.res-num{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-variant-numeric:tabular-nums}
+.res-num b{font:700 19px/1 var(--serif);color:var(--text)}
+.res-num small{font-size:10px;color:var(--faint)}
+.res-item.win .res-num b{color:var(--gold-1)}
+.res-item.worst .res-num b{color:var(--danger-soft)}
+.res-chev{width:14px;height:14px;fill:var(--faint);transition:transform .2s var(--ease)}
+.res-row[aria-expanded="true"] .res-chev{transform:rotate(180deg);fill:var(--gold-2)}
+/* a player's rounds, revealed on tap; chips wrap so any number of rounds fits */
+.res-rounds{display:flex;flex-wrap:wrap;gap:5px;padding:2px 8px 12px 72px}
+.res-rounds[hidden]{display:none}
+.res-chip{display:inline-flex;align-items:baseline;gap:5px;padding:4px 8px;border-radius:8px;font-size:12px;font-weight:600;color:var(--text-2);background:rgba(255,255,255,.05);font-variant-numeric:tabular-nums}
+.res-chip i{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;color:var(--faint)}
+.res-chip.won{color:var(--ok-soft);background:rgba(var(--ok-rgb),.12)}
+.res-chip.won i{color:var(--ok-soft)}
+.res-chip.na{color:var(--faint)}
+.sc-roast{flex:none;margin:8px 8px 0;font-size:12px;line-height:1.4;color:var(--faint);font-style:italic;text-align:center}
+.sc-roast b{font-style:normal;font-weight:600;color:var(--muted)}
 
 /* actions */
-.sc-actions{flex:none;margin-top:clamp(14px,2.2dvh,18px)}
+.sc-actions{flex:none;margin-top:clamp(12px,2dvh,16px)}
 .sc .lp-cta{height:clamp(46px,6.4dvh,52px)}
 .sc-wait{
   height:clamp(46px,6.4dvh,52px);display:flex;align-items:center;justify-content:center;gap:4px;
@@ -653,59 +632,29 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .sc-quick button:hover{border-color:rgba(var(--gold-rgb),.5)}
 .sc-quick button.on{background:rgba(var(--gold-rgb),.16);border-color:var(--gold-1);color:var(--gold-1)}
 body.chat-open .sc-talk-feed{display:none} /* full chat is already visible */
-.sc.sc-in .sc-talk{animation:lpUp .6s var(--ease) both .95s}
 @media(max-height:640px){.sc-talk-feed{display:none}.sc-talk-head{margin-bottom:6px}}
 @media(orientation:landscape) and (max-height:560px){.sc-talk{margin-top:8px;padding:8px 10px}.sc-talk-head{display:none}.sc-quick button{min-height:30px}}
 body.round-over .chat{z-index:260}
 body.round-over .chat-backdrop{z-index:255}
 @media(min-width:960px){body.round-over.chat-open .over{padding-right:342px}}
 
-/* one-time entrance */
-.sc-burst{position:absolute;left:50%;top:21px;width:0;height:0;pointer-events:none}
-.sc-burst i{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:var(--gold-1);box-shadow:0 0 8px rgba(var(--gold-rgb),.8);opacity:0}
-.sc-burst i:nth-child(even){width:4px;height:4px;left:-2px;top:-2px;background:#fff3c4}
-.sc.sc-in{animation:scIn .7s var(--ease) both}
-@keyframes scIn{from{opacity:0;transform:translateY(24px) scale(.97)}}
-.sc.sc-in::before{animation:lightUp 1.4s ease-out both .2s}
-@keyframes lightUp{from{opacity:0}}
-.sc.sc-in .sc-round{animation:lpUp .6s var(--ease) both .15s}
-.sc.sc-in .sc-crown{animation:crownDrop .9s var(--ease) both .3s}
-@keyframes crownDrop{from{opacity:0;transform:translateY(-16px) rotate(-12deg)}}
-.sc.sc-in .sc-burst i{animation:burst 1s var(--ease) both .6s}
-@keyframes burst{0%{opacity:1;transform:rotate(var(--a)) translateY(0) scale(1)}100%{opacity:0;transform:rotate(var(--a)) translateY(-64px) scale(.3)}}
-.sc.sc-in .sc-label{animation:lpUp .6s var(--ease) both .4s}
-.sc.sc-in .sc-champ-name{animation:champIn .8s var(--ease) both .45s,nameShimmer 5s ease-in-out infinite 1.6s}
-@keyframes champIn{from{opacity:0;transform:translateY(10px) scale(.92);letter-spacing:.06em}}
-.sc.sc-in .sc-champ-sub{animation:lpUp .6s var(--ease) both .6s}
-.sc.sc-in .sc-divider{animation:lineIn .8s var(--ease) both .65s}
-@keyframes lineIn{from{transform:scaleX(0);opacity:0}}
-.sc.sc-in .sc-head{animation:lpUp .5s var(--ease) both .7s}
-.sc.sc-in .sc-row{animation:rowIn .55s var(--ease) both;animation-delay:calc(.75s + var(--i) * .08s)}
-@keyframes rowIn{from{opacity:0;transform:translateX(-14px)}}
-.sc.sc-in .sc-row.win{animation:rowIn .55s var(--ease) both .75s,winGlow 1.8s ease-out 1.25s}
-@keyframes winGlow{0%{box-shadow:inset 0 0 0 1px rgba(var(--gold-rgb),.3),0 0 0 0 rgba(var(--gold-rgb),.5)}100%{box-shadow:inset 0 0 0 1px rgba(var(--gold-rgb),.3),0 0 0 12px rgba(var(--gold-rgb),0)}}
-.sc.sc-in .sc-left .mini-card{animation:cardPop .45s var(--ease) both}
-@keyframes cardPop{from{opacity:0;transform:translateY(6px) scale(.7) rotate(-8deg)}}
-.sc.sc-in .sc-roast{animation:lpUp .6s var(--ease) both 1.05s}
-.sc.sc-in .sc-actions{animation:lpUp .6s var(--ease) both 1s}
-.sc.sc-in .lp-cta::after{animation:ctaSheen 1.2s var(--ease) 1.8s}
-@keyframes ctaSheen{from{left:-60%}to{left:130%}}
+/* one short entrance: card, summary, then rows in sequence */
+.sc.sc-in{animation:scIn .45s var(--ease) both}
+@keyframes scIn{from{opacity:0;transform:translateY(16px) scale(.98)}}
+.sc.sc-in .sc-hero{animation:lpUp .45s var(--ease) both .08s}
+.sc.sc-in .res-item{animation:lpUp .4s var(--ease) both;animation-delay:calc(.16s + var(--i) * .045s)}
+.sc.sc-in .sc-roast,.sc.sc-in .sc-talk,.sc.sc-in .sc-actions{animation:lpUp .45s var(--ease) both .3s}
+@keyframes rowIn{from{opacity:0;transform:translateX(-14px)}} /* also used by the lobby list */
 
-@media(max-width:380px){.sc-tool{font-size:12px;gap:5px}}
-@media(max-height:640px){
-  .sc-roast{display:none}
-  .sc-crown{width:40px;height:32px}
-  .sc-champ-name{font-size:32px}
-}
+@media(max-width:380px){.sc-tool{font-size:12px;gap:5px}.res-rounds{padding-left:8px}}
+@media(max-height:640px){.sc-roast{display:none}.sc-hero{padding:10px 12px}}
 @media(orientation:landscape) and (max-height:560px){
   .sc{padding:12px 16px}
-  .sc-champ{margin-top:6px}
-  .sc-crown{width:30px;height:25px}
-  .sc-label,.sc-head,.sc-roast{display:none}
-  .sc-champ-name{font-size:28px;margin-top:2px}
-  .sc-divider{margin:8px 6px 4px}
+  .sc-round,.sc-head,.sc-roast{display:none}
+  .sc-hero{margin-top:0;padding:8px 12px}
+  .sc-hero-av .lb-av{width:40px;height:40px;font-size:17px}
   .sc-list{min-height:48px}
-  .sc-row{padding:6px 10px}
+  .res-row{padding:6px 8px}
   .sc-actions{margin-top:8px}
   .sc .lp-cta{height:42px}
   .sc-tool{height:36px}
@@ -1993,6 +1942,7 @@ document.addEventListener('click',async e=>{
     return;
   }
   const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c,c);
+  const rr=e.target.closest('.res-row[aria-controls]');if(rr)return toggleResRow(rr);
   const a=e.target.closest('[data-a]');if(a&&a.id==='passBtn'){a.disabled=true;passUntil=0}
   if(a){const r=await api({a:a.dataset.a});if(r&&r.err)toast(r.err);return}
 });
@@ -2340,54 +2290,56 @@ const SC_ICO={
   share:'<svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>',
   dl:'<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>',
   leave:'<svg viewBox="0 0 24 24"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>',
-  flag:'<svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
+  flag:'<svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>',
+  chev:'<svg class="res-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>'
 };
-const scBurst=()=>[0,45,90,135,180,225,270,315].map(a=>`<i style="--a:${a}deg"></i>`).join('');
 const scAvatar=name=>`<span class="lb-av" aria-hidden="true">${esc((String(name).trim()[0]||'?').toUpperCase())}</span>`;
 const scWait=(hostP,what)=>`<div class="sc-wait" role="status">Waiting for<b>${esc(hostP?hostP.name:'the host')}</b>${what}<span class="lb-dots"><i></i><i></i><i></i></span></div>`;
+const scNum=(v,fresh)=>`<span data-count="${v||0}">${fresh?0:(v||0)}</span>`;
+// The winner summary at the top of both cards: avatar with a crown, name, one line, one number.
+function scHero(name,eyebrow,sub,num,numLabel){
+  return `<div class="sc-hero" style="--h:${nameHue(name)}">
+    <span class="sc-hero-av">${scAvatar(name)}<svg viewBox="0 0 64 52" aria-hidden="true"><use href="#crownSvg"/></svg></span>
+    <span class="sc-hero-txt"><span class="sc-eyebrow">${eyebrow}</span><h2 id="scTitle" class="sc-hero-name">${esc(name)}</h2><span class="sc-hero-sub">${sub}</span></span>
+    <span class="sc-hero-num"><b>${num}</b><small>${numLabel}</small></span>
+  </div>`;
+}
+// One row: rank, avatar, name (+ tags) over a single meta line, and a right-aligned number.
+function resRowInner(idx,p,tags,meta,num,small){
+  return `<span class="res-rank">${idx+1}</span>${scAvatar(p.name)}
+    <span class="res-who"><span class="res-name"><span>${esc(p.name)}</span>${tags}</span>${meta}</span>
+    <span class="res-num"><b>${num}</b><small>${small}</small></span>`;
+}
+// leftover cards on one line: the costliest first, at most six, then "+N"
+function leftLine(cards){
+  if(!cards.length)return '<span class="res-meta ok">Cleared their hand</span>';
+  const sorted=[...cards].sort((a,b)=>b%13-a%13),shown=sorted.slice(0,6),more=sorted.length-shown.length;
+  return `<span class="res-meta" aria-label="${cards.length} card${cards.length===1?'':'s'} left">${shown.map((c,i)=>miniCardBadge(c,i)).join('')}${more?`<span class="res-more">+${more}</span>`:''}</span>`;
+}
 
-// Round results: only this round. Who went out first (or held the fewest points when the board locked),
-// what everyone was left holding, and the points each takes from this round. Totals wait for the end.
+// Round results: only this round. Who won it, what everyone was left holding, the points each takes.
 function buildRoundOverModal(fresh){
   const seated=G.players.filter(p=>!p.spec);
   if(!seated.length)return '';
   const byRound=[...seated].sort((a,b)=>(a.roundPts||0)-(b.roundPts||0)||(a.place||99)-(b.place||99));
   const winner=byRound[0],worst=byRound[byRound.length-1];
   const showTrail=byRound.length>1&&(worst.roundPts||0)>(winner.roundPts||0);
-  const roast=ROASTS[((G.round||1)+worst.id)%ROASTS.length];
-  const num=v=>`<span data-count="${v||0}">${fresh?0:(v||0)}</span>`;
   const host=G.host===G.you,hostP=G.players.find(p=>p.id===G.host);
   const rows=byRound.map((p,idx)=>{
-    const isWin=idx===0,isLose=showTrail&&p.id===worst.id;
-    const left=p.roundPts>0
-      ?`<span class="sc-left">${(p.leftCards||[]).map((c,ci)=>miniCardBadge(c,ci)).join('')}</span>`
-      :'<span class="sc-left out">Cleared their hand</span>';
-    return `<li class="sc-row${isWin?' win':isLose?' lose':''}" style="--h:${nameHue(p.name)};--i:${idx}">
-      <span class="sc-rank${idx<3?' r'+(idx+1):''}">${idx+1}</span>
-      ${scAvatar(p.name)}
-      <span class="sc-who"><b><span>${esc(p.name)}</span>${p.id===G.you?'<small>You</small>':''}</b>${left}</span>
-      <span class="sc-pts"><b>+${num(p.roundPts)}</b><small>pts</small></span>
-    </li>`;
+    const cls=idx===0?' win':showTrail&&p.id===worst.id?' worst':'';
+    return `<li class="res-item${cls}" style="--h:${nameHue(p.name)};--i:${idx}"><div class="res-row">${
+      resRowInner(idx,p,p.id===G.you?'<small>You</small>':'',leftLine(p.leftCards||[]),'+'+scNum(p.roundPts,fresh),'pts')}</div></li>`;
   }).join('');
-  const champSub=winner.roundPts>0?`Fewest points left · <b>+${winner.roundPts}</b>`:'Went out first · <b>+0</b> pts';
+  const sub=winner.roundPts>0?`Fewest points left`:'Went out first';
   return `<section class="sc${fresh?' sc-in':''}" role="dialog" aria-modal="true" aria-labelledby="scTitle">
-    <span class="sc-round">Round ${G.round||1} results</span>
-    <div class="sc-champ">
-      <span class="sc-burst" aria-hidden="true">${scBurst()}</span>
-      <svg class="sc-crown" viewBox="0 0 64 52" aria-hidden="true"><use href="#crownSvg"/></svg>
-      <span class="sc-label">Round winner</span>
-      <h2 id="scTitle" class="sc-champ-name">${esc(winner.name)}</h2>
-      <span class="sc-champ-sub">${champSub}</span>
-    </div>
-    <div class="sc-divider"></div>
+    <span class="sc-round">Round ${G.round||1}</span>
+    ${scHero(winner.name,'Round winner',sub,'+'+(winner.roundPts||0),'pts')}
     <div class="sc-head"><span>This round</span><span>Points</span></div>
     <ol class="sc-list">${rows}</ol>
-    ${showTrail?`<p class="sc-roast"><b>${esc(worst.name)}</b> · ${roast}</p>`:''}
+    ${showTrail?`<p class="sc-roast"><b>${esc(worst.name)}</b> · ${ROASTS[((G.round||1)+worst.id)%ROASTS.length]}</p>`:''}
     ${practiceMode?'':scTalkHTML(host)}
     <div class="sc-actions">
-      ${host
-        ?`<button class="btn lp-cta" data-a="start" type="button">Next Round${ARROW_SVG}</button>`
-        :scWait(hostP,'to deal')}
+      ${host?`<button class="btn lp-cta" data-a="start" type="button">Next Round${ARROW_SVG}</button>`:scWait(hostP,'to deal')}
       <div class="sc-tools">
         ${host?`<button class="btn-ghost sc-tool" data-a="endgame" type="button">${SC_ICO.flag}End game</button>`:''}
         <button class="btn-ghost sc-tool" data-leave="1" type="button">${SC_ICO.leave}Leave</button>
@@ -2402,52 +2354,51 @@ function finalStandings(){
   const hist=(G&&G.history)||[],by=new Map();
   hist.forEach((h,ri)=>h.rows.forEach(r=>{
     let s=by.get(r.id);
-    if(!s){s={id:r.id,name:r.name,total:0,wins:0,pts:hist.map(()=>null)};by.set(r.id,s)}
-    s.name=r.name;s.total+=r.pts||0;s.pts[ri]=r.pts||0;if(r.place===1)s.wins++;
+    if(!s){s={id:r.id,name:r.name,total:0,wins:0,best:null,pts:hist.map(()=>null)};by.set(r.id,s)}
+    const v=r.pts||0;
+    s.name=r.name;s.total+=v;s.pts[ri]=v;if(r.place===1)s.wins++;if(s.best==null||v<s.best)s.best=v;
   }));
   const here=new Set((G?G.players:[]).map(p=>p.id));
   return [...by.values()].map(s=>({...s,left:!here.has(s.id)}))
     .sort((a,b)=>a.total-b.total||b.wins-a.wins||a.name.localeCompare(b.name));
 }
 
-// Final results: overall champion, standings by total, and every round's points.
+// Which final-results rows are open. Kept across re-renders (a chat message redraws the card), per game.
+let resOpen={key:'',ids:new Set()};
+function toggleResRow(btn){
+  const id=+btn.dataset.pid,open=btn.getAttribute('aria-expanded')!=='true';
+  if(open)resOpen.ids.add(id);else resOpen.ids.delete(id);
+  btn.setAttribute('aria-expanded',String(open));
+  const panel=document.getElementById(btn.getAttribute('aria-controls'));if(panel)panel.hidden=!open;
+}
+
+// Final results: the champion, then everyone ranked by total. Tap a row for that player's rounds.
 function buildFinalModal(fresh){
-  const st=finalStandings(),rounds=(G.history||[]).length;
+  const st=finalStandings(),hist=G.history||[],rounds=hist.length;
   if(!st.length)return '';
+  const key=G.room+':'+rounds+':'+(hist[0]?hist[0].round:0);
+  if(resOpen.key!==key)resOpen={key,ids:new Set()};
   const champ=st[0],host=G.host===G.you,hostP=G.players.find(p=>p.id===G.host);
-  const num=v=>`<span data-count="${v||0}">${fresh?0:(v||0)}</span>`;
-  const rows=st.map((p,idx)=>`<li class="sc-row${idx===0?' win':''}" style="--h:${nameHue(p.name)};--i:${idx}">
-      <span class="sc-rank${idx<3?' r'+(idx+1):''}">${idx+1}</span>
-      ${scAvatar(p.name)}
-      <span class="sc-who"><b><span>${esc(p.name)}</span>${p.id===G.you?'<small>You</small>':''}${p.left?'<i class="sc-tag gone">Left</i>':''}</b><span class="sc-left">${p.wins?`Won ${p.wins} round${p.wins===1?'':'s'}`:'No round wins'}</span></span>
-      <span class="sc-pts"><b>${num(p.total)}</b><small>pts total</small></span>
-    </li>`).join('');
-  // round-by-round grid: lowest score of each round is highlighted
-  const best=(G.history||[]).map(h=>Math.min(...h.rows.map(r=>r.pts||0)));
-  const grid=`<div class="sc-grid" role="region" aria-label="Points by round" tabindex="0"><table>
-    <thead><tr><th scope="col">Player</th>${(G.history||[]).map(h=>`<th scope="col">R${h.round}</th>`).join('')}<th scope="col">Total</th></tr></thead>
-    <tbody>${st.map(p=>`<tr${p.id===G.you?' class="me"':''}><th scope="row">${esc(p.name)}</th>${p.pts.map((v,i)=>v==null?'<td class="na">–</td>':`<td${v===best[i]?' class="best"':''}>${v}</td>`).join('')}<td class="tot">${p.total}</td></tr>`).join('')}</tbody>
-  </table></div>`;
+  const rs=n=>`${n} round${n===1?'':'s'}`;
+  const rows=st.map((p,idx)=>{
+    const open=resOpen.ids.has(p.id),tags=(p.id===G.you?'<small>You</small>':'')+(p.left?'<i class="sc-tag">Left</i>':'');
+    const meta=`<span class="res-meta">${p.wins?`Won ${p.wins}`:'No wins'} · best round ${p.best==null?'–':p.best}</span>`;
+    const chips=p.pts.map((v,i)=>v==null
+      ?`<span class="res-chip na"><i>R${hist[i].round}</i>–</span>`
+      :`<span class="res-chip${hist[i].rows.some(r=>r.id===p.id&&r.place===1)?' won':''}"><i>R${hist[i].round}</i>${v}</span>`).join('');
+    return `<li class="res-item${idx===0?' win':''}" style="--h:${nameHue(p.name)};--i:${idx}">
+      <button class="res-row" type="button" data-pid="${p.id}" aria-expanded="${open}" aria-controls="resR${p.id}" title="Show ${esc(p.name)}'s rounds">${
+        resRowInner(idx,p,tags,meta,scNum(p.total,fresh),'pts')}${SC_ICO.chev}</button>
+      <div class="res-rounds" id="resR${p.id}" ${open?'':'hidden'}>${chips}</div>
+    </li>`;
+  }).join('');
   return `<section class="sc final${fresh?' sc-in':''}" role="dialog" aria-modal="true" aria-labelledby="scTitle">
-    <span class="sc-round">Game over · ${rounds} round${rounds===1?'':'s'}</span>
-    <div class="sc-champ">
-      <span class="sc-burst" aria-hidden="true">${scBurst()}</span>
-      <svg class="sc-crown" viewBox="0 0 64 52" aria-hidden="true"><use href="#crownSvg"/></svg>
-      <span class="sc-label">Champion</span>
-      <h2 id="scTitle" class="sc-champ-name">${esc(champ.name)}</h2>
-      <span class="sc-champ-sub"><b>${num(champ.total)}</b> pts over ${rounds} round${rounds===1?'':'s'}</span>
-    </div>
-    <div class="sc-divider"></div>
-    <div class="sc-head"><span>Final standings</span><span>Total</span></div>
-    <div class="sc-body">
-      <ol class="sc-list">${rows}</ol>
-      <div class="sc-head sc-grid-head"><span>Points by round</span><span class="sc-key">Green = lowest</span></div>
-      ${grid}
-    </div>
+    <span class="sc-round">Game over · ${rs(rounds)}</span>
+    ${scHero(champ.name,'Champion',`Won ${champ.wins} of ${rs(rounds)}`,scNum(champ.total,fresh),'pts total')}
+    <div class="sc-head"><span>Final standings · tap for rounds</span><span>Total</span></div>
+    <ol class="sc-list">${rows}</ol>
     <div class="sc-actions">
-      ${host
-        ?`<button class="btn lp-cta" data-a="newgame" type="button">New Game${ARROW_SVG}</button>`
-        :scWait(hostP,'to start a new game')}
+      ${host?`<button class="btn lp-cta" data-a="newgame" type="button">New Game${ARROW_SVG}</button>`:scWait(hostP,'to start a new game')}
       <div class="sc-tools">
         <button id="shareCardBtn" class="btn-ghost sc-tool" type="button">${SC_ICO.share}Share</button>
         <button id="dlCardBtn" class="btn-ghost sc-tool" type="button">${SC_ICO.dl}Save</button>
