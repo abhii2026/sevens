@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,viewport-fit=cover,interactive-widget=resizes-visual">
 <meta name="theme-color" content="#0a1310">
 <title>Sevens</title>
 <style>
@@ -53,23 +53,24 @@
 }
 
 /* table themes: chosen per phone in Table settings; gold, cards and text stay the same */
-html[data-felt="blue"]{
-  --bg:#060c1d;--felt-glow:rgba(70,130,235,.34);--felt-1:#143a70;--felt-2:#0a1f4a;
-  --sc-1:#1a3260;--sc-2:#12224a;--sc-3:#0b1734;--glow:rgba(60,110,230,.6);--bg-1:#0c1630;--bg-2:#050a17;
-  --ui-1:30,46,88;--ui-2:13,21,46;--toast-rgb:18,30,62;--ink-rgb:6,12,30;
-  --poster-1:#1d3f7a;--poster-2:#122a58;--poster-3:#091833;
+html[data-felt="galaxy"]{
+  --bg:#07061a;--felt-glow:rgba(140,110,255,.3);--felt-1:#221858;--felt-2:#0b0928;
+  --sc-1:#221a52;--sc-2:#16113a;--sc-3:#0c0a24;--glow:rgba(120,80,230,.5);--bg-1:#120d33;--bg-2:#05041a;
+  --ui-1:38,30,84;--ui-2:16,12,42;--toast-rgb:28,22,62;--ink-rgb:10,8,28;
+  --poster-1:#2a1f66;--poster-2:#18124a;--poster-3:#0a0826;
 }
-html[data-felt="wine"]{
-  --bg:#16050b;--felt-glow:rgba(225,70,105,.26);--felt-1:#701630;--felt-2:#380716;
-  --sc-1:#4a1424;--sc-2:#310c18;--sc-3:#1e0710;--glow:rgba(200,40,84,.55);--bg-1:#240a13;--bg-2:#0f0407;
-  --ui-1:76,24,42;--ui-2:36,10,19;--toast-rgb:54,16,29;--ink-rgb:26,6,13;
-  --poster-1:#5c1a2f;--poster-2:#3a0e1c;--poster-3:#1f060f;
+html[data-felt="neon"]{
+  --bg:#08050f;--felt-glow:rgba(255,60,180,.16);--felt-1:#1c1030;--felt-2:#0a0614;
+  --sc-1:#21122f;--sc-2:#160c22;--sc-3:#0c0614;--glow:rgba(255,40,170,.3);--bg-1:#140a22;--bg-2:#06030b;
+  --ui-1:40,20,58;--ui-2:16,8,26;--toast-rgb:30,14,44;--ink-rgb:10,5,18;
+  --poster-1:#2a1440;--poster-2:#180a28;--poster-3:#0a0512;
+  --neon-a:255,63,180;--neon-b:41,230,255;
 }
-html[data-felt="charcoal"]{
-  --bg:#0b0b0c;--felt-glow:rgba(255,214,140,.14);--felt-1:#34383d;--felt-2:#131517;
-  --sc-1:#2b2e32;--sc-2:#1c1e21;--sc-3:#111214;--glow:rgba(240,181,82,.26);--bg-1:#18191b;--bg-2:#08090a;
-  --ui-1:46,48,53;--ui-2:21,22,25;--toast-rgb:33,34,38;--ink-rgb:12,12,14;
-  --poster-1:#33363a;--poster-2:#222427;--poster-3:#121315;
+html[data-felt="ocean"]{
+  --bg:#03141a;--felt-glow:rgba(80,220,230,.22);--felt-1:#083643;--felt-2:#052630;
+  --sc-1:#0e3d48;--sc-2:#0a2c35;--sc-3:#061c23;--glow:rgba(40,170,190,.42);--bg-1:#082a33;--bg-2:#031015;
+  --ui-1:16,62,74;--ui-2:7,30,38;--toast-rgb:12,46,56;--ink-rgb:4,20,26;
+  --poster-1:#0f4a58;--poster-2:#0a3240;--poster-3:#051a22;
 }
 
 /* ================= BASE ================= */
@@ -566,7 +567,13 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   animation:popIn .18s var(--ease) both;
 }
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.97)}}
-#qTray{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:min(300px,calc(100vw - 24px))}
+#qTray{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:min(320px,calc(100vw - 24px))}
+.my-row{grid-column:1/-1;display:flex;gap:6px}
+.ph.my{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-style:dashed;border-color:rgba(var(--gold-rgb),.5)}
+.ph-edit{flex:none;width:40px;border-radius:12px;cursor:pointer;background:var(--surface);border:1px solid var(--line-hi);font-size:15px}
+.my-form{grid-column:1/-1;display:flex;gap:6px}
+.my-form input{flex:1;min-width:0;height:40px;padding:0 12px;border-radius:12px;font-size:16px} /* 16px: iPhones zoom into smaller inputs */
+.my-form .btn{flex:none;height:40px;padding:0 14px;border-radius:12px}
 .ph{
   min-height:36px;padding:6px 10px;border-radius:12px;cursor:pointer;text-align:left;
   font:600 13px/1.2 var(--sans);color:var(--text);background:var(--surface);border:1px solid var(--line-hi);
@@ -577,12 +584,15 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 #bubbles{position:fixed;inset:0;z-index:120;pointer-events:none}
 .bub{
   position:fixed;translate:-50% 0;max-width:min(220px,70vw);padding:6px 11px;border-radius:12px;
-  font:600 13px/1.25 var(--sans);color:var(--gold-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  background:linear-gradient(180deg,#fff3d1,#ffd98a);box-shadow:0 6px 18px rgba(0,0,0,.45);
+  font:600 13px/1.25 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  /* the sender's own colour (the hue of their avatar), so you can tell who said it */
+  color:hsl(var(--h,40) 60% 14%);background:hsl(var(--h,40) 75% 82%);
+  box-shadow:0 6px 18px rgba(0,0,0,.45),inset 0 0 0 1px hsl(var(--h,40) 60% 60% / .6);
   animation:bubIn .28s var(--ease) both;
 }
-.bub::before{content:"";position:absolute;top:-5px;left:calc(50% + var(--ax,0px) - 5px);width:10px;height:10px;rotate:45deg;background:#fff3d1}
+.bub::before{content:"";position:absolute;top:-5px;left:calc(50% + var(--ax,0px) - 5px);width:10px;height:10px;rotate:45deg;background:hsl(var(--h,40) 75% 82%)}
 .bub.out{animation:bubOut .25s ease-in both}
+.bub.stacked::before{display:none} /* pushed below a neighbour's: its colour says whose it is */
 .bub[hidden]{display:none}
 @keyframes bubIn{from{opacity:0;transform:translateY(-6px) scale(.9)}}
 @keyframes bubOut{to{opacity:0;transform:translateY(-4px)}}
@@ -632,6 +642,39 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:translate .15s var(--ease)}
 .sw.on{background:var(--ok)}
 .sw.on::after{translate:16px 0}
+
+/* ---------- animated themes: they sit behind the cards (felt) and behind everything (page) ---------- */
+.fx{position:absolute;inset:0;z-index:-1;overflow:hidden;border-radius:inherit;pointer-events:none;contain:strict}
+.stars{inset:0;opacity:.2;animation:starsTw var(--d,5s) ease-in-out infinite}
+@keyframes starsTw{0%,100%{opacity:.18}50%{opacity:1}}
+.fx .cau{inset:-20%}
+#fxBg{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.fx i,#fxBg i{position:absolute;display:block;pointer-events:none}
+html.lite .fx,html.lite #fxBg{display:none}
+/* galaxy: twinkling stars, a drifting nebula, now and then a shooting star */
+.st{width:var(--s,2px);height:var(--s,2px);border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(200,210,255,.9);animation:twinkle var(--d,4s) ease-in-out infinite}
+@keyframes twinkle{0%,100%{opacity:.12;transform:scale(.55)}50%{opacity:.95;transform:scale(1)}}
+.neb{inset:-30%;background:radial-gradient(40% 32% at 30% 40%,rgba(150,90,255,.30),transparent 70%),radial-gradient(34% 28% at 70% 62%,rgba(60,140,255,.24),transparent 70%),radial-gradient(26% 22% at 55% 25%,rgba(255,110,200,.14),transparent 70%);animation:nebDrift 46s ease-in-out infinite alternate}
+@keyframes nebDrift{to{transform:translate(8%,-6%) rotate(8deg) scale(1.08)}}
+.shoot{width:110px;height:2px;border-radius:2px;opacity:0;background:linear-gradient(90deg,rgba(255,255,255,0),#fff);rotate:-28deg;animation:shoot var(--d,11s) linear infinite}
+@keyframes shoot{0%,86%{opacity:0;transform:translateX(0)}88%{opacity:1}96%{opacity:0;transform:translateX(-340px)}100%{opacity:0;transform:translateX(-340px)}}
+/* neon night: a pink and a cyan rim light taking turns, and a slow light sweep */
+.neon{inset:4px;border-radius:16px;opacity:.15;animation:neonPulse 4.6s ease-in-out infinite}
+.neon.a{box-shadow:inset 0 0 0 1.5px rgba(var(--neon-a),.9),inset 0 0 26px rgba(var(--neon-a),.45),0 0 18px rgba(var(--neon-a),.5)}
+.neon.b{box-shadow:inset 0 0 0 1.5px rgba(var(--neon-b),.9),inset 0 0 26px rgba(var(--neon-b),.4),0 0 18px rgba(var(--neon-b),.45)}
+@keyframes neonPulse{0%,100%{opacity:.12}50%{opacity:1}}
+.sweep{top:0;bottom:0;left:-40%;width:40%;background:linear-gradient(90deg,transparent,rgba(var(--neon-b),.10),rgba(var(--neon-a),.12),transparent);animation:sweep var(--d,9s) ease-in-out infinite}
+@keyframes sweep{0%,20%{transform:translateX(0)}80%,100%{transform:translateX(350%)}}
+.glowball{width:60vmax;height:60vmax;border-radius:50%;opacity:.5;animation:neonPulse 7s ease-in-out infinite}
+/* ocean: light rippling over the felt, bubbles rising */
+.cau{inset:-50%;opacity:.55;background:
+  radial-gradient(18% 12% at 20% 30%,rgba(170,255,250,.16),transparent 70%),radial-gradient(14% 10% at 62% 22%,rgba(170,255,250,.13),transparent 70%),
+  radial-gradient(20% 13% at 40% 68%,rgba(170,255,250,.14),transparent 70%),radial-gradient(15% 11% at 80% 58%,rgba(170,255,250,.12),transparent 70%),
+  radial-gradient(12% 9% at 10% 80%,rgba(170,255,250,.12),transparent 70%);animation:cau var(--d,22s) ease-in-out infinite alternate}
+.cau.b{animation-direction:alternate-reverse;opacity:.4;rotate:40deg}
+@keyframes cau{to{transform:translate(9%,6%) scale(1.12)}}
+.bb{bottom:-14px;width:var(--s,6px);height:var(--s,6px);border-radius:50%;border:1px solid rgba(190,255,255,.45);background:rgba(190,255,255,.08);animation:rise var(--d,9s) linear infinite}
+@keyframes rise{0%{transform:translate(0,0);opacity:0}10%{opacity:.9}90%{opacity:.6}100%{transform:translate(var(--x,12px),-760px);opacity:0}}
 
 /* ================= RESULTS CARDS (round results + final results) ================= */
 /* Calm and flat: a winner summary, one ranked list, then actions. Numbers right-aligned, one line per row. */
@@ -1357,12 +1400,55 @@ function setStore(k,v){
 
 let audioCtx=null,muted=getStore('sevensMute')==='1';
 // Table felt (per phone) and haptics. iPhones ignore web vibration, so buzz() is Android-only in practice.
-const FELTS=[['green','Classic green','#1f5640','#0a1310'],['blue','Royal blue','#2a62c4','#060c1d'],['wine','Burgundy','#a52446','#16050b'],['charcoal','Charcoal & gold','#4a4f55','#0b0b0c']];
-let felt=getStore('sevensFelt');if(!FELTS.some(f=>f[0]===felt))felt='green';
+const FELTS=[['green','Classic green','#1f5640','#0a1310'],['galaxy','Galaxy','#4b37b8','#07061a'],['neon','Neon night','#ff3fb4','#08050f'],['ocean','Ocean','#138a9c','#03141a']];
+let felt=getStore('sevensFelt');
+felt=({blue:'galaxy',wine:'neon',charcoal:'ocean'})[felt]||felt; // themes from v1.12
+if(!FELTS.some(f=>f[0]===felt))felt='green';
 let haptics=getStore('sevensHaptics')!=='0';
 function applyFelt(){
   document.documentElement.dataset.felt=felt;
   const m=document.querySelector('meta[name="theme-color"]'),f=FELTS.find(x=>x[0]===felt);if(m&&f)m.content=f[3];
+  paintBgFx();
+}
+// Animated themes. The felt is redrawn on every move, so each moving piece starts at the phase the clock
+// says it should be in (a negative delay from Date.now()): a redraw continues the motion instead of restarting it.
+// Positions come from a fixed seed, so stars stay put. Lite phones and reduced-motion get none of this.
+function seeded(n){let a=n>>>0;return()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}}
+function fxPiece(cls,dur,phase,style){const d=Math.round(dur*1000);return `<i class="${cls}" style="--d:${d}ms;animation-delay:-${(Date.now()+phase)%d}ms;${style||''}"></i>`}
+function fxHTML(kind,where){ // where: 'felt' | 'page'
+  const r=seeded(where==='felt'?7:11);let h='';
+  if(kind==='galaxy'){
+    if(where==='felt'){ // the felt is rebuilt every move: two painted star fields taking turns, not dozens of stars
+      h+=fxPiece("stars",5.2,0,`background:${starField(3,22)}`)+fxPiece("stars",5.2,2600,`background:${starField(5,22)}`);
+    }else{
+      h+=fxPiece('neb',46,9000);
+      for(let i=0;i<44;i++)h+=fxPiece('st',3+r()*4,r()*7000,`left:${(r()*100).toFixed(1)}%;top:${(r()*100).toFixed(1)}%;--s:${(1+r()*2.2).toFixed(1)}px`);
+    }
+    h+=fxPiece('shoot',where==='felt'?11:17,where==='felt'?0:6000,`left:${where==='felt'?78:70}%;top:${where==='felt'?14:18}%`);
+  }else if(kind==='neon'){
+    if(where==='felt')h+=fxPiece('neon a',4.6,0)+fxPiece('neon b',4.6,2300)+fxPiece('sweep',9,0);
+    else h+=fxPiece('glowball',7,0,'left:-20vmax;top:-18vmax;background:radial-gradient(closest-side,rgba(var(--neon-a),.35),transparent)')
+      +fxPiece('glowball',7,3500,'right:-22vmax;bottom:-20vmax;background:radial-gradient(closest-side,rgba(var(--neon-b),.3),transparent)');
+  }else if(kind==='ocean'){
+    h+=fxPiece('cau',22,0)+(where==='felt'?'':fxPiece('cau b',29,5000));
+    for(let i=0;i<(where==='felt'?5:12);i++)h+=fxPiece('bb',7+r()*7,r()*14000,`left:${(4+r()*92).toFixed(1)}%;--s:${(4+r()*7).toFixed(0)}px;--x:${(r()*30-15).toFixed(0)}px`);
+  }
+  return h;
+}
+// one layer of n stars as background dots (cheap to rebuild), placed from a fixed seed
+const starFields={};
+function starField(seed,n){
+  if(starFields[seed])return starFields[seed];
+  const r=seeded(seed*97),g=[];
+  for(let i=0;i<n;i++){const z=(1.3+r()*1.6).toFixed(1);g.push(`radial-gradient(${z}px ${z}px at ${(r()*100).toFixed(1)}% ${(r()*100).toFixed(1)}%,#fff,rgba(255,255,255,0) 100%)`)}
+  return starFields[seed]=g.join(',');
+}
+function feltFx(){return felt==='green'?'':`<div class="fx" aria-hidden="true">${fxHTML(felt,'felt')}</div>`}
+function paintBgFx(){
+  const bg=document.getElementById('lpBg');if(!bg)return;
+  let l=document.getElementById('fxBg');
+  if(!l){l=document.createElement('div');l.id='fxBg';bg.appendChild(l)}
+  l.innerHTML=felt==='green'?'':fxHTML(felt,'page');
 }
 applyFelt();
 function buzz(pattern){
@@ -2179,6 +2265,7 @@ document.getElementById('chatClose').addEventListener('click',()=>{
 document.getElementById('chatBackdrop').addEventListener('click',()=>{
   chatOpen=false;paintChat();
 });
+document.addEventListener('submit',e=>{if(e.target&&e.target.id==='myForm'){e.preventDefault();saveMyLine()}});
 document.getElementById('chatForm').addEventListener('submit',e=>{
   e.preventDefault();
   const inp=document.getElementById('chatIn'),t=inp.value.trim();if(!t)return;
@@ -2199,6 +2286,8 @@ document.addEventListener('click',async e=>{
   const vn=e.target.closest('[data-vid]');if(vn)return playClip(vn.dataset.vid);
   if(e.target.closest('#qBtn'))return toggleTray();
   const ph=e.target.closest('[data-ph]');if(ph)return sendPhrase(+ph.dataset.ph);
+  if(e.target.closest('[data-my]'))return sendPhrase('my');
+  if(e.target.closest('[data-myedit]'))return editMyLine();
   if(e.target.closest('#trayMic')||e.target.closest('#micBtn'))return startRec();
   if(e.target.closest('#recCancel'))return stopRec(false);
   if(e.target.closest('#recSend'))return stopRec(true);
@@ -2812,7 +2901,7 @@ function table(){
   <div class="workspace">
     <div class="table-col">
       <div class="players">${chips}</div>
-      <div class="board"><div class="bi ${wide?'w':''}">${board}</div>${G.phase==='playing'?`<button id="qBtn" class="felt-fab${document.getElementById('qTray')?' on':''}" type="button" aria-label="Quick phrases" aria-haspopup="true"><svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 6.5a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01z"/></svg></button>`:''}</div>
+      <div class="board">${feltFx()}<div class="bi ${wide?'w':''}">${board}</div>${G.phase==='playing'?`<button id="qBtn" class="felt-fab${document.getElementById('qTray')?' on':''}" type="button" aria-label="Quick phrases" aria-haspopup="true"><svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 6.5a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01z"/></svg></button>`:''}</div>
       <div class="banner ${cls}">
         <span id="bt">${msg}</span>${passBtn()}${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait" type="button">Skip wait</button>':''}
       </div>
@@ -2912,7 +3001,9 @@ function announceSetAside(){
 // pass straight away rather than make the whole table wait out the countdown.
 // ---------- table extras: quick phrases, seat bubbles, voice notes, settings ----------
 // Phrases go by index (the server has the same list), so they can never carry other text.
-const PHRASES=['Nice one!','Hurry up \u{1F634}','Ouch \u{1F62C}','Who\u2019s holding the 6?','Sorry!','Good game \u{1F44F}','Lucky! \u{1F340}','Hmm\u2026 \u{1F914}'];
+const PHRASES=['Is that all you\u2019ve got? \u{1F60F}','Hurry up, I\u2019m aging \u{1F474}','Somebody\u2019s hoarding! \u{1F575}️','Ouch, that stings \u{1F41D}','My bad, my bad \u{1F648}','Bow to the master \u{1F451}','Beginner\u2019s luck \u{1F340}','GG, already \u{1F3C6}'];
+const MY_LINE_MAX=30; // one line of the player's own, kept on this phone (sevensMyLine)
+const myLine=()=>String(getStore('sevensMyLine')||'').trim().slice(0,MY_LINE_MAX);
 const MIC_SVG='<svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
 const PLAY_ICONS='<svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>';
 let resumedAt=0,phraseAt=0,othersBuzzAt=0;
@@ -2925,7 +3016,9 @@ function bubblesOn(){return !!G&&G.phase==='playing'&&app.classList.contains('t'
 function showBubble(pid,html,ms,cls){
   if(!bubblesOn())return;
   const old=bubbles.get(pid);if(old){clearTimeout(old.timer);old.el.remove()}
-  const el=document.createElement('div');el.className='bub '+(cls||'');el.innerHTML=html;bubbleLayer().appendChild(el);
+  const el=document.createElement('div');el.className='bub '+(cls||'');el.innerHTML=html;
+  const who=G.players.find(q=>q.id===pid);if(who)el.style.setProperty('--h',nameHue(who.name));
+  bubbleLayer().appendChild(el);
   bubbles.set(pid,{el,timer:setTimeout(()=>dropBubble(pid,el),ms)});
   placeBubbles();
 }
@@ -2937,12 +3030,18 @@ function clearBubbles(){for(const b of bubbles.values()){clearTimeout(b.timer);b
 function placeBubbles(){
   if(!bubbles.size)return;
   if(!bubblesOn())return clearBubbles();
+  // neighbours' bubbles would overlap: each one that would land on an earlier one drops below it
+  const placed=[];
   for(const [pid,b] of bubbles){
     const chip=app.querySelector('.players .pl[data-pid="'+pid+'"]'),r=chip&&chip.getBoundingClientRect();
     if(!r||!r.width||r.bottom<0||r.top>innerHeight){b.el.hidden=true;continue}
     b.el.hidden=false;
-    const w=b.el.offsetWidth,mid=r.left+r.width/2,x=Math.max(8+w/2,Math.min(innerWidth-8-w/2,mid));
-    b.el.style.left=x+'px';b.el.style.top=(r.bottom+7)+'px';b.el.style.setProperty('--ax',(mid-x)+'px');
+    const w=b.el.offsetWidth,h=b.el.offsetHeight,mid=r.left+r.width/2,x=Math.max(8+w/2,Math.min(innerWidth-8-w/2,mid));
+    let y=r.bottom+7;
+    for(let moved=true;moved;){moved=false;for(const q of placed)if(x-w/2<q.r+4&&x+w/2>q.l-4&&y<q.b+4&&y+h>q.t-4){y=q.b+6;moved=true}}
+    placed.push({l:x-w/2,r:x+w/2,t:y,b:y+h});
+    b.el.style.left=x+'px';b.el.style.top=y+'px';b.el.style.setProperty('--ax',(mid-x)+'px');
+    b.el.classList.toggle('stacked',y>r.bottom+8);
   }
 }
 function vnButton(m,cls){
@@ -2966,17 +3065,37 @@ function toggleTray(){if(document.getElementById('qTray'))return closePops();ope
 function openTray(){
   closePops();if(!G)return;
   const t=document.createElement('div');t.id='qTray';t.className='pop';t.setAttribute('role','menu');t.setAttribute('aria-label','Quick phrases');
-  t.innerHTML=PHRASES.map((p,i)=>`<button type="button" class="ph" role="menuitem" data-ph="${i}">${esc(p)}</button>`).join('')
-    +(practiceMode?'':`<button type="button" class="ph mic" id="trayMic" role="menuitem">${MIC_SVG}Voice note</button>`);
+  t.innerHTML=trayHTML();
   document.body.appendChild(t);placeTray();
   const b=document.getElementById('qBtn');if(b)b.classList.add('on');
+}
+function trayHTML(editing){
+  const mine=myLine();
+  const own=editing
+    ?`<form class="my-form" id="myForm"><input id="myIn" maxlength="${MY_LINE_MAX}" placeholder="Your own line\u2026" autocomplete="off" aria-label="Your own quick line" value="${esc(mine)}"><button class="btn" type="submit">Save</button></form>`
+    :`<div class="my-row"><button type="button" class="ph my" role="menuitem" data-my="1">${mine?esc(mine):'\u270F\uFE0F Add your own line'}</button><button type="button" class="ph-edit" data-myedit="1" aria-label="Edit your own line">\u270F\uFE0F</button></div>`;
+  return PHRASES.map((p,i)=>`<button type="button" class="ph" role="menuitem" data-ph="${i}">${esc(p)}</button>`).join('')+own
+    +(practiceMode||editing?'':`<button type="button" class="ph mic" id="trayMic" role="menuitem">${MIC_SVG}Voice note</button>`);
+}
+function editMyLine(){
+  const t=document.getElementById('qTray');if(!t)return;
+  t.classList.add('editing');t.innerHTML=trayHTML(true);placeTray();
+  const i=document.getElementById('myIn');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}
+}
+function saveMyLine(){
+  const i=document.getElementById('myIn');if(!i)return;
+  setStore('sevensMyLine',i.value.replace(/\s+/g,' ').trim().slice(0,MY_LINE_MAX)||null);
+  i.blur();
+  const t=document.getElementById('qTray');if(t){t.classList.remove('editing');t.innerHTML=trayHTML();placeTray()}
 }
 function placeTray(){
   const t=document.getElementById('qTray');if(!t)return;
   const b=document.getElementById('qBtn');
   if(!b||!G||G.phase!=='playing'){t.remove();return} // the round ended under it
   const r=b.getBoundingClientRect();
-  t.style.right=Math.max(12,Math.min(innerWidth-r.right,innerWidth-12-t.offsetWidth))+'px';t.style.bottom=Math.max(12,innerHeight-r.top+8)+'px';
+  t.style.right=Math.max(12,Math.min(innerWidth-r.right,innerWidth-12-t.offsetWidth))+'px';
+  if(t.classList.contains('editing')){t.style.bottom='auto';t.style.top='64px';return} // above the keyboard
+  t.style.top='auto';t.style.bottom=Math.max(12,innerHeight-r.top+8)+'px';
 }
 function closeSettings(){const p=document.getElementById('setPop');if(p)p.remove()}
 function closePops(){
@@ -2984,17 +3103,19 @@ function closePops(){
   const b=document.getElementById('qBtn');if(b)b.classList.remove('on');
   closeSettings();
 }
-function sendPhrase(i){
+function sendPhrase(i){ // i: a PHRASES index, or 'my' for the player's own line
+  const own=i==='my',text=own?myLine():PHRASES[i];
+  if(own&&!text)return editMyLine();
   closePops();
-  if(!G||!(i>=0&&i<PHRASES.length))return;
+  if(!G||!text)return;
   if(Date.now()-phraseAt<2000)return toast('Wait a moment before sending again');
   phraseAt=Date.now();
-  showBubble(G.you,esc(PHRASES[i]),3500,'');
+  showBubble(G.you,esc(text),3500,'');
   if(practiceMode){
-    P_STATE.chat.push({id:++P_STATE.chatSeq,name:P_STATE.players[0].name,text:PHRASES[i],sys:false,kind:'phrase',pid:1});
+    P_STATE.chat.push({id:++P_STATE.chatSeq,name:P_STATE.players[0].name,text,sys:false,kind:'phrase',pid:1});
     return syncPracticeView();
   }
-  api({a:'chat',phrase:i}).then(r=>{if(r&&r.err)toast(r.err==='offline'?'You\u2019re offline. Try again.':r.err)});
+  api(own?{a:'chat',custom:text}:{a:'chat',phrase:i}).then(r=>{if(r&&r.err)toast(r.err==='offline'?'You\u2019re offline. Try again.':r.err)});
 }
 
 // Table settings: felt colour and vibration, remembered on this phone only
@@ -3014,6 +3135,8 @@ function openSettings(){
 function pickFelt(k){
   if(!FELTS.some(f=>f[0]===k))return;
   felt=k;setStore('sevensFelt',k);applyFelt();
+  const fx=app.querySelector('.board .fx'),bd=app.querySelector('.board');
+  if(bd){if(fx)fx.remove();if(felt!=='green')bd.insertAdjacentHTML('afterbegin',feltFx())}
   const p=document.getElementById('setPop');if(p)p.innerHTML=settingsHTML();
 }
 function toggleHaptics(){
@@ -3132,15 +3255,36 @@ function viewWide(){const d=document.documentElement;return d.clientWidth/Math.m
 let settleTimer=0,fitFor='';
 function settleView(){
   clearTimeout(settleTimer);
-  settleTimer=setTimeout(()=>{
+  // toolbars animate for a while and some browsers report the size mid-way and never again: check three times
+  settleTimer=setTimeout(()=>{settleOnce();settleTimer=setTimeout(()=>{settleOnce();settleTimer=setTimeout(settleOnce,800)},420)},180);
+}
+function settleOnce(){
+  {
     const kb=window.visualViewport&&visualViewport.height<document.documentElement.clientHeight*.75;
     if(kb&&document.activeElement&&document.activeElement.matches&&document.activeElement.matches('input,textarea'))return; // typing: leave it alone
     if(scrollX||scrollY||(window.visualViewport&&(visualViewport.offsetTop||visualViewport.pageTop)))window.scrollTo(0,0);
     if(document.scrollingElement&&document.scrollingElement.scrollTop)document.scrollingElement.scrollTop=0;
     const d=document.documentElement,key=d.clientWidth+'x'+d.clientHeight;
     if(G&&G.phase!=='lobby'&&app.classList.contains('t')&&key!==fitFor){layout(viewWide());placeBubbles();placeTray()}
-  },180);
+    // a browser left the page zoomed (Brave and Safari can, after the address bar): re-applying the viewport resets it
+    const vv=window.visualViewport;
+    if(vv&&Math.abs(vv.scale-1)>.01&&!kb){
+      const m=document.querySelector('meta[name="viewport"]');
+      if(m){const c=m.content;m.content=c.replace(/,?interactive-widget=[^,]*/,'')+',user-scalable=no';requestAnimationFrame(()=>{m.content=c})}
+    }
+    paintViewDebug();
+  }
 }
+// ?vd=1 shows the numbers the layout works from, to diagnose a phone that lays out wrongly
+const VIEW_DEBUG=new URLSearchParams(location.search).get('vd')==='1';
+function paintViewDebug(){
+  if(!VIEW_DEBUG)return;
+  let b=document.getElementById('vdBox');
+  if(!b){b=document.createElement('div');b.id='vdBox';b.style.cssText='position:fixed;left:4px;bottom:4px;z-index:999;padding:4px 6px;border-radius:6px;font:11px/1.3 monospace;color:#0f0;background:rgba(0,0,0,.75);pointer-events:none;white-space:pre';document.body.appendChild(b)}
+  const d=document.documentElement,v=window.visualViewport;
+  b.textContent='inner '+innerWidth+'x'+innerHeight+'\ndoc   '+d.clientWidth+'x'+d.clientHeight+'\nvv    '+(v?Math.round(v.width)+'x'+Math.round(v.height)+' @'+v.scale.toFixed(2)+' top'+Math.round(v.offsetTop):'-')+'\nscroll '+scrollX+','+scrollY+'\nfit   '+fitFor+(viewWide()?' wide':'');
+}
+if(VIEW_DEBUG){addEventListener('load',paintViewDebug);setInterval(paintViewDebug,1000)}
 if(window.visualViewport)visualViewport.addEventListener('resize',settleView);
 addEventListener('focusout',settleView);
 addEventListener('pageshow',settleView);

@@ -29,8 +29,8 @@ const TURN_WAIT = +process.env.TURN_WAIT_MS || 10000;
 const SEAT_MAX = 60, IP_FLOOD_MAX = 300;
 const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
 // One-tap phrases. Sent by index, so a "phrase" can never carry arbitrary text. index.html has the same list.
-const PHRASES = ['Nice one!', 'Hurry up \u{1F634}', 'Ouch \u{1F62C}', 'Who’s holding the 6?', 'Sorry!', 'Good game \u{1F44F}', 'Lucky! \u{1F340}', 'Hmm… \u{1F914}'];
-const PHRASE_GAP = 2000;
+const PHRASES = ['Is that all you’ve got? \u{1F60F}', 'Hurry up, I’m aging \u{1F474}', 'Somebody’s hoarding! \u{1F575}️', 'Ouch, that stings \u{1F41D}', 'My bad, my bad \u{1F648}', 'Bow to the master \u{1F451}', 'Beginner’s luck \u{1F340}', 'GG, already \u{1F3C6}'];
+const PHRASE_GAP = 2000, MY_LINE_MAX = 30; // plus one line of the player's own, sent as {custom}
 // Voice notes: short clips uploaded once, kept in memory per table, fetched by players only when they tap play.
 const VOICE_MAX_BYTES = 160 * 1024, VOICE_MIN_MS = 500, VOICE_MAX_MS = 8500, VOICE_PER_TABLE = 15, VOICE_GAP = 3000, VOICE_PER_MIN = 10;
 const VOICE_TTL = +env('VOICE_TTL_MS', 600000), VOICE_TOTAL_MAX = +env('VOICE_TOTAL_MAX', 32 * 1024 * 1024);
@@ -985,12 +985,19 @@ function act(b, ip) {
   }
   if (b.a === 'chat') {
     const now = Date.now();
-    if (b.phrase !== undefined) {
-      const i = b.phrase;
-      if (!Number.isInteger(i) || i < 0 || i >= PHRASES.length) return { err: 'Unknown phrase', state: view(S, p) };
+    if (b.phrase !== undefined || b.custom !== undefined) {
+      let text;
+      if (b.custom !== undefined) {
+        text = clean(b.custom).slice(0, MY_LINE_MAX).trim();
+        if (!text) return { err: 'Write your line first', state: view(S, p) };
+      } else {
+        const i = b.phrase;
+        if (!Number.isInteger(i) || i < 0 || i >= PHRASES.length) return { err: 'Unknown phrase', state: view(S, p) };
+        text = PHRASES[i];
+      }
       if ((p.phraseAt && now - p.phraseAt < PHRASE_GAP) || (p.chatAt && now - p.chatAt < 400)) return { err: 'Wait a moment before sending again', state: view(S, p) };
       p.phraseAt = p.chatAt = now;
-      addChat(S, p.name, PHRASES[i], false, 'phrase', { pid: p.id }); push(S); return { state: view(S, p) };
+      addChat(S, p.name, text, false, 'phrase', { pid: p.id }); push(S); return { state: view(S, p) };
     }
     const text = clean(b.msg).slice(0, 160).trim();
     if (!text) return { err: 'Type a message first', state: view(S, p) };
