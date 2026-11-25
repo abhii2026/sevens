@@ -568,12 +568,12 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 }
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.97)}}
 #qTray{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:min(320px,calc(100vw - 24px))}
-.my-row{grid-column:1/-1;display:flex;gap:6px}
-.ph.my{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-style:dashed;border-color:rgba(var(--gold-rgb),.5)}
-.ph-edit{flex:none;width:40px;border-radius:12px;cursor:pointer;background:var(--surface);border:1px solid var(--line-hi);font-size:15px}
-.my-form{grid-column:1/-1;display:flex;gap:6px}
-.my-form input{flex:1;min-width:0;height:40px;padding:0 12px;border-radius:12px;font-size:16px} /* 16px: iPhones zoom into smaller inputs */
-.my-form .btn{flex:none;height:40px;padding:0 14px;border-radius:12px}
+.ph-actions{grid-column:1/-1;display:flex;gap:6px}
+.ph.my{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-style:dashed;border-color:rgba(var(--gold-rgb),.55)}
+.ph.ph-edit{flex:none;width:44px;text-align:center;padding:0}
+.ph-form{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
+.ph-form input{height:40px;padding:0 12px;border-radius:12px;font-size:16px} /* 16px: iPhones zoom into smaller inputs */
+.ph-form .ph-actions>*{flex:1;height:40px;border-radius:12px}
 .ph{
   min-height:36px;padding:6px 10px;border-radius:12px;cursor:pointer;text-align:left;
   font:600 13px/1.2 var(--sans);color:var(--text);background:var(--surface);border:1px solid var(--line-hi);
@@ -650,7 +650,7 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .fx .cau{inset:-20%}
 #fxBg{position:absolute;inset:0;overflow:hidden;pointer-events:none}
 .fx i,#fxBg i{position:absolute;display:block;pointer-events:none}
-html.lite .fx,html.lite #fxBg{display:none}
+html.nofx .fx,html.nofx #fxBg{display:none} /* off by the player, or for this session on a phone measured slow */
 /* galaxy: twinkling stars, a drifting nebula, now and then a shooting star */
 .st{width:var(--s,2px);height:var(--s,2px);border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(200,210,255,.9);animation:twinkle var(--d,4s) ease-in-out infinite}
 @keyframes twinkle{0%,100%{opacity:.12;transform:scale(.55)}50%{opacity:.95;transform:scale(1)}}
@@ -1405,6 +1405,10 @@ let felt=getStore('sevensFelt');
 felt=({blue:'galaxy',wine:'neon',charcoal:'ocean'})[felt]||felt; // themes from v1.12
 if(!FELTS.some(f=>f[0]===felt))felt='green';
 let haptics=getStore('sevensHaptics')!=='0';
+// animated themes: 'on' / 'off' chosen in Table settings; unset = on unless this phone proves slow (then off for the session)
+let fxPref=getStore('sevensFx')||'';
+const fxOn=()=>!document.documentElement.classList.contains('nofx');
+if(fxPref==='off')document.documentElement.classList.add('nofx');
 function applyFelt(){
   document.documentElement.dataset.felt=felt;
   const m=document.querySelector('meta[name="theme-color"]'),f=FELTS.find(x=>x[0]===felt);if(m&&f)m.content=f[3];
@@ -1765,9 +1769,14 @@ const LITE_KEY='sevensLite';
 let slowRenders=0;
 if((navigator.hardwareConcurrency||8)<=4||(navigator.deviceMemory||8)<=2||getStore(LITE_KEY)==='1')document.documentElement.classList.add('lite');
 function noteRenderTime(ms){
-  if(document.documentElement.classList.contains('lite')||!G||G.phase==='lobby')return;
+  if(!G||G.phase==='lobby')return;
+  if(document.documentElement.classList.contains('lite')&&(felt==='green'||!fxOn()))return; // nothing left to turn off
   slowRenders=ms>120?slowRenders+1:0;
-  if(slowRenders>=3){document.documentElement.classList.add('lite');setStore(LITE_KEY,'1')}
+  if(slowRenders<3)return;
+  slowRenders=0;
+  // a slow phone first loses the animated theme, for this session only (unless the player switched it on)
+  if(felt!=='green'&&fxOn()&&fxPref!=='on'){document.documentElement.classList.add('nofx');return}
+  document.documentElement.classList.add('lite');setStore(LITE_KEY,'1');
 }
 // Cards are played when the finger lifts on the card it touched, not on the click that follows: a phone
 // delivers that click 100-350ms later, which made every move feel sluggish.
@@ -2265,7 +2274,7 @@ document.getElementById('chatClose').addEventListener('click',()=>{
 document.getElementById('chatBackdrop').addEventListener('click',()=>{
   chatOpen=false;paintChat();
 });
-document.addEventListener('submit',e=>{if(e.target&&e.target.id==='myForm'){e.preventDefault();saveMyLine()}});
+document.addEventListener('submit',e=>{if(e.target&&e.target.id==='phForm'){e.preventDefault();savePhrases(false)}});
 document.getElementById('chatForm').addEventListener('submit',e=>{
   e.preventDefault();
   const inp=document.getElementById('chatIn'),t=inp.value.trim();if(!t)return;
@@ -2286,14 +2295,15 @@ document.addEventListener('click',async e=>{
   const vn=e.target.closest('[data-vid]');if(vn)return playClip(vn.dataset.vid);
   if(e.target.closest('#qBtn'))return toggleTray();
   const ph=e.target.closest('[data-ph]');if(ph)return sendPhrase(+ph.dataset.ph);
-  if(e.target.closest('[data-my]'))return sendPhrase('my');
-  if(e.target.closest('[data-myedit]'))return editMyLine();
+  if(e.target.closest('[data-phedit]'))return editPhrases();
+  if(e.target.closest('[data-phreset]'))return savePhrases(true);
   if(e.target.closest('#trayMic')||e.target.closest('#micBtn'))return startRec();
   if(e.target.closest('#recCancel'))return stopRec(false);
   if(e.target.closest('#recSend'))return stopRec(true);
   if(e.target.closest('#setBtn'))return toggleSettings();
   const fp=e.target.closest('[data-felt-pick]');if(fp)return pickFelt(fp.dataset.feltPick);
   if(e.target.closest('#hapBtn'))return toggleHaptics();
+  if(e.target.closest('#fxBtn'))return toggleFx();
   if(e.target.closest('#go'))return join();
   if(e.target.closest('#soloBtn')){
     const nmEl=document.getElementById('nm');
@@ -3001,9 +3011,11 @@ function announceSetAside(){
 // pass straight away rather than make the whole table wait out the countdown.
 // ---------- table extras: quick phrases, seat bubbles, voice notes, settings ----------
 // Phrases go by index (the server has the same list), so they can never carry other text.
-const PHRASES=['Is that all you\u2019ve got? \u{1F60F}','Hurry up, I\u2019m aging \u{1F474}','Somebody\u2019s hoarding! \u{1F575}️','Ouch, that stings \u{1F41D}','My bad, my bad \u{1F648}','Bow to the master \u{1F451}','Beginner\u2019s luck \u{1F340}','GG, already \u{1F3C6}'];
-const MY_LINE_MAX=30; // one line of the player's own, kept on this phone (sevensMyLine)
-const myLine=()=>String(getStore('sevensMyLine')||'').trim().slice(0,MY_LINE_MAX);
+const PHRASES=['Is that all you’ve got? 😏','Hurry up, I’m aging 👴','Ouch, that stings 🐝','Bow to the master 👑','Beginner’s luck 🍀','Kya baat hai! 🔥','Bas kar bhai 😂','Aaj toh gaya tu 😈']; // the defaults (server.js has the same list)
+const MY_LINE_MAX=40;
+// the 8th phrase is the player's own: it starts as the default and can be rewritten (kept on the phone, sevensMyLine)
+const myLine=()=>String(getStore('sevensMyLine')||'').replace(/\s+/g,' ').trim().slice(0,MY_LINE_MAX);
+function myPhrases(){const l=PHRASES.slice();l[7]=myLine()||PHRASES[7];return l}
 const MIC_SVG='<svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
 const PLAY_ICONS='<svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>';
 let resumedAt=0,phraseAt=0,othersBuzzAt=0;
@@ -3070,22 +3082,22 @@ function openTray(){
   const b=document.getElementById('qBtn');if(b)b.classList.add('on');
 }
 function trayHTML(editing){
-  const mine=myLine();
+  const list=myPhrases();
   const own=editing
-    ?`<form class="my-form" id="myForm"><input id="myIn" maxlength="${MY_LINE_MAX}" placeholder="Your own line\u2026" autocomplete="off" aria-label="Your own quick line" value="${esc(mine)}"><button class="btn" type="submit">Save</button></form>`
-    :`<div class="my-row"><button type="button" class="ph my" role="menuitem" data-my="1">${mine?esc(mine):'\u270F\uFE0F Add your own line'}</button><button type="button" class="ph-edit" data-myedit="1" aria-label="Edit your own line">\u270F\uFE0F</button></div>`;
-  return PHRASES.map((p,i)=>`<button type="button" class="ph" role="menuitem" data-ph="${i}">${esc(p)}</button>`).join('')+own
+    ?`<form class="ph-form" id="phForm"><input id="phIn" maxlength="${MY_LINE_MAX}" autocomplete="off" aria-label="Your own quick phrase" value="${esc(list[7])}" placeholder="${esc(PHRASES[7])}"><div class="ph-actions"><button type="button" class="btn-ghost" data-phreset="1">Reset</button><button class="btn" type="submit">Save</button></div></form>`
+    :`<div class="ph-actions"><button type="button" class="ph my" role="menuitem" data-ph="7">${esc(list[7])}</button><button type="button" class="ph ph-edit" data-phedit="1" aria-label="Change your own phrase">✏️</button></div>`;
+  return list.slice(0,7).map((p,i)=>`<button type="button" class="ph" role="menuitem" data-ph="${i}">${esc(p)}</button>`).join('')+own
     +(practiceMode||editing?'':`<button type="button" class="ph mic" id="trayMic" role="menuitem">${MIC_SVG}Voice note</button>`);
 }
-function editMyLine(){
+function editPhrases(){
   const t=document.getElementById('qTray');if(!t)return;
   t.classList.add('editing');t.innerHTML=trayHTML(true);placeTray();
-  const i=document.getElementById('myIn');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}
+  const i=document.getElementById('phIn');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}
 }
-function saveMyLine(){
-  const i=document.getElementById('myIn');if(!i)return;
-  setStore('sevensMyLine',i.value.replace(/\s+/g,' ').trim().slice(0,MY_LINE_MAX)||null);
-  i.blur();
+function savePhrases(reset){
+  const i=document.getElementById('phIn'),v=reset||!i?'':i.value.replace(/\s+/g,' ').trim().slice(0,MY_LINE_MAX);
+  setStore('sevensMyLine',v&&v!==PHRASES[7]?v:null);
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   const t=document.getElementById('qTray');if(t){t.classList.remove('editing');t.innerHTML=trayHTML();placeTray()}
 }
 function placeTray(){
@@ -3094,7 +3106,9 @@ function placeTray(){
   if(!b||!G||G.phase!=='playing'){t.remove();return} // the round ended under it
   const r=b.getBoundingClientRect();
   t.style.right=Math.max(12,Math.min(innerWidth-r.right,innerWidth-12-t.offsetWidth))+'px';
-  if(t.classList.contains('editing')){t.style.bottom='auto';t.style.top='64px';return} // above the keyboard
+  if(t.classList.contains('editing')){ // at the top, scrolling inside, so the keyboard never hides the fields
+    t.style.bottom='auto';t.style.top='56px';return;
+  }
   t.style.top='auto';t.style.bottom=Math.max(12,innerHeight-r.top+8)+'px';
 }
 function closeSettings(){const p=document.getElementById('setPop');if(p)p.remove()}
@@ -3103,9 +3117,8 @@ function closePops(){
   const b=document.getElementById('qBtn');if(b)b.classList.remove('on');
   closeSettings();
 }
-function sendPhrase(i){ // i: a PHRASES index, or 'my' for the player's own line
-  const own=i==='my',text=own?myLine():PHRASES[i];
-  if(own&&!text)return editMyLine();
+function sendPhrase(i){ // i: the slot (0-7); the phrase may be the player's own rewrite
+  const text=myPhrases()[i];
   closePops();
   if(!G||!text)return;
   if(Date.now()-phraseAt<2000)return toast('Wait a moment before sending again');
@@ -3115,13 +3128,14 @@ function sendPhrase(i){ // i: a PHRASES index, or 'my' for the player's own line
     P_STATE.chat.push({id:++P_STATE.chatSeq,name:P_STATE.players[0].name,text,sys:false,kind:'phrase',pid:1});
     return syncPracticeView();
   }
-  api(own?{a:'chat',custom:text}:{a:'chat',phrase:i}).then(r=>{if(r&&r.err)toast(r.err==='offline'?'You\u2019re offline. Try again.':r.err)});
+  api(text===PHRASES[i]?{a:'chat',phrase:i}:{a:'chat',custom:text}).then(r=>{if(r&&r.err)toast(r.err==='offline'?'You’re offline. Try again.':r.err)});
 }
 
 // Table settings: felt colour and vibration, remembered on this phone only
 function toggleSettings(){if(document.getElementById('setPop'))return closePops();openSettings()}
 function settingsHTML(){
   return `<div class="pop-title">Table felt</div><div class="felts">${FELTS.map(([k,n,c])=>`<button type="button" class="felt${k===felt?' on':''}" data-felt-pick="${k}" aria-pressed="${k===felt}" style="--c:${c}"><i></i>${n}</button>`).join('')}</div>`
+    +`<button type="button" class="pop-row" id="fxBtn" role="switch" aria-checked="${fxOn()}">Animations<span class="sw${fxOn()?' on':''}"></span></button>`
     +(navigator.vibrate?`<button type="button" class="pop-row" id="hapBtn" role="switch" aria-checked="${haptics}">Vibration<span class="sw${haptics?' on':''}"></span></button>`:'');
 }
 function openSettings(){
@@ -3137,6 +3151,11 @@ function pickFelt(k){
   felt=k;setStore('sevensFelt',k);applyFelt();
   const fx=app.querySelector('.board .fx'),bd=app.querySelector('.board');
   if(bd){if(fx)fx.remove();if(felt!=='green')bd.insertAdjacentHTML('afterbegin',feltFx())}
+  const p=document.getElementById('setPop');if(p)p.innerHTML=settingsHTML();
+}
+function toggleFx(){
+  const on=!fxOn();fxPref=on?'on':'off';setStore('sevensFx',fxPref);
+  document.documentElement.classList.toggle('nofx',!on);
   const p=document.getElementById('setPop');if(p)p.innerHTML=settingsHTML();
 }
 function toggleHaptics(){
