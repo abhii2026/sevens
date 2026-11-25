@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0a1310">
 <title>Sevens</title>
 <style>
@@ -15,13 +15,16 @@
   --felt-glow:rgba(64,150,108,.42);--felt-1:#184331;--felt-2:#0f2b21;
   --sc-1:#152f25;--sc-2:#0f221b;--sc-3:#0b1813;
   --glow:rgba(46,125,92,.55);--bg-1:#0f1c17;--bg-2:#09110e;
-  --well:rgba(5,11,9,.55);            /* inputs, list rows */
-  --glass:rgba(10,18,15,.6);          /* chips floating on the felt */
+  /* panels, chat, toasts, glass chips: rgb triplets so each surface keeps its own opacity */
+  --ui-1:30,48,41;--ui-2:16,27,23;--toast-rgb:20,34,29;--ink-rgb:10,18,15;
+  --poster-1:#173629;--poster-2:#10251d;--poster-3:#0a1612; /* the shared scorecard image */
+  --well:rgba(var(--ink-rgb),.55);            /* inputs, list rows */
+  --glass:rgba(var(--ink-rgb),.6);          /* chips floating on the felt */
   --surface:rgba(255,255,255,.04);
   --surface-hi:rgba(255,255,255,.08);
   --line:rgba(255,255,255,.08);
   --line-hi:rgba(255,255,255,.14);
-  --panel:linear-gradient(180deg,rgba(30,48,41,.97),rgba(16,27,23,.98));
+  --panel:linear-gradient(180deg,rgba(var(--ui-1),.97),rgba(var(--ui-2),.98));
   --rim:linear-gradient(160deg,rgba(255,220,150,.55),rgba(255,255,255,.08) 38%,rgba(255,255,255,.04) 70%,rgba(240,181,82,.3));
   /* text: every tier is AA (4.5:1+) on the dark surfaces */
   --text:#f4f1e8;
@@ -50,9 +53,24 @@
 }
 
 /* table themes: chosen per phone in Table settings; gold, cards and text stay the same */
-html[data-felt="blue"]{--glow:rgba(56,98,168,.5);--bg-1:#0e1626;--bg-2:#080c14;--panel:linear-gradient(180deg,rgba(30,42,64,.97),rgba(15,22,36,.98));--bg:#0a0f18;--felt-glow:rgba(72,122,196,.42);--felt-1:#1a3050;--felt-2:#0f1d33;--sc-1:#16253d;--sc-2:#0f1a2c;--sc-3:#0a121f}
-html[data-felt="wine"]{--glow:rgba(150,52,74,.48);--bg-1:#1f0f14;--bg-2:#11080b;--panel:linear-gradient(180deg,rgba(58,28,37,.97),rgba(31,15,20,.98));--bg:#130a0d;--felt-glow:rgba(176,72,94,.4);--felt-1:#4a1a26;--felt-2:#2e0f18;--sc-1:#36161f;--sc-2:#251018;--sc-3:#190b10}
-html[data-felt="charcoal"]{--glow:rgba(120,124,128,.32);--bg-1:#17191a;--bg-2:#0c0d0e;--panel:linear-gradient(180deg,rgba(44,46,48,.97),rgba(23,24,25,.98));--bg:#0e0f10;--felt-glow:rgba(150,150,150,.26);--felt-1:#2c2f31;--felt-2:#1a1c1e;--sc-1:#24272a;--sc-2:#1a1c1e;--sc-3:#121314}
+html[data-felt="blue"]{
+  --bg:#060c1d;--felt-glow:rgba(70,130,235,.34);--felt-1:#143a70;--felt-2:#0a1f4a;
+  --sc-1:#1a3260;--sc-2:#12224a;--sc-3:#0b1734;--glow:rgba(60,110,230,.6);--bg-1:#0c1630;--bg-2:#050a17;
+  --ui-1:30,46,88;--ui-2:13,21,46;--toast-rgb:18,30,62;--ink-rgb:6,12,30;
+  --poster-1:#1d3f7a;--poster-2:#122a58;--poster-3:#091833;
+}
+html[data-felt="wine"]{
+  --bg:#16050b;--felt-glow:rgba(225,70,105,.26);--felt-1:#701630;--felt-2:#380716;
+  --sc-1:#4a1424;--sc-2:#310c18;--sc-3:#1e0710;--glow:rgba(200,40,84,.55);--bg-1:#240a13;--bg-2:#0f0407;
+  --ui-1:76,24,42;--ui-2:36,10,19;--toast-rgb:54,16,29;--ink-rgb:26,6,13;
+  --poster-1:#5c1a2f;--poster-2:#3a0e1c;--poster-3:#1f060f;
+}
+html[data-felt="charcoal"]{
+  --bg:#0b0b0c;--felt-glow:rgba(255,214,140,.14);--felt-1:#34383d;--felt-2:#131517;
+  --sc-1:#2b2e32;--sc-2:#1c1e21;--sc-3:#111214;--glow:rgba(240,181,82,.26);--bg-1:#18191b;--bg-2:#08090a;
+  --ui-1:46,48,53;--ui-2:21,22,25;--toast-rgb:33,34,38;--ink-rgb:12,12,14;
+  --poster-1:#33363a;--poster-2:#222427;--poster-3:#121315;
+}
 
 /* ================= BASE ================= */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -186,7 +204,7 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   position:fixed;left:50%;top:max(14px,env(safe-area-inset-top));translate:-50% 0;z-index:400;
   max-width:min(400px,calc(100vw - 24px));padding:9px 16px;border-radius:12px;
   text-align:center;font-size:13px;font-weight:500;color:var(--text);pointer-events:none;
-  background:rgba(20,34,29,.94);border:1px solid rgba(var(--gold-rgb),.32);
+  background:rgba(var(--toast-rgb),.94);border:1px solid rgba(var(--gold-rgb),.32);
   box-shadow:0 10px 28px rgba(0,0,0,.45);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   animation:toastIn .32s var(--ease) both;
@@ -249,7 +267,7 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 }
 .pl-dot{
   position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:50%;
-  background:var(--ok);border:2px solid #0d1915;
+  background:var(--ok);border:2px solid var(--bg);
 }
 .pl-name{font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap}
 .pl-meta{font-size:11.5px;color:var(--muted);white-space:nowrap}
@@ -447,7 +465,7 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .chat{
   position:fixed;z-index:140;overflow:hidden;
   display:flex;flex-direction:column;color:var(--text);
-  background:linear-gradient(180deg,rgba(26,43,37,.95),rgba(14,24,20,.97));
+  background:linear-gradient(180deg,rgba(var(--ui-1),.95),rgba(var(--ui-2),.97));
   border:1px solid rgba(var(--gold-rgb),.2);
   box-shadow:0 16px 40px rgba(0,0,0,.45);
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
@@ -892,7 +910,7 @@ body.round-over .chat-backdrop{z-index:255}
   padding:clamp(20px,3.4vh,30px) clamp(18px,3vw,28px);
   border-radius:24px;
   background:
-    linear-gradient(180deg,rgba(30,48,41,.86),rgba(16,27,23,.9)) padding-box,
+    linear-gradient(180deg,rgba(var(--ui-1),.86),rgba(var(--ui-2),.9)) padding-box,
     var(--rim) border-box;
   border:1px solid transparent;
   box-shadow:0 30px 70px rgba(0,0,0,.55),0 10px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);
@@ -1339,7 +1357,7 @@ function setStore(k,v){
 
 let audioCtx=null,muted=getStore('sevensMute')==='1';
 // Table felt (per phone) and haptics. iPhones ignore web vibration, so buzz() is Android-only in practice.
-const FELTS=[['green','Classic green','#1f5640','#0a1310'],['blue','Midnight blue','#24406b','#0a0f18'],['wine','Burgundy','#5e2131','#130a0d'],['charcoal','Charcoal','#3a3e41','#0e0f10']];
+const FELTS=[['green','Classic green','#1f5640','#0a1310'],['blue','Royal blue','#2a62c4','#060c1d'],['wine','Burgundy','#a52446','#16050b'],['charcoal','Charcoal & gold','#4a4f55','#0b0b0c']];
 let felt=getStore('sevensFelt');if(!FELTS.some(f=>f[0]===felt))felt='green';
 let haptics=getStore('sevensHaptics')!=='0';
 function applyFelt(){
@@ -1988,7 +2006,8 @@ function generateScorecardCanvas(){
 
   // 1. felt + stage light + floor shade (same recipe as the modal)
   let g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#173629');g.addColorStop(.42,'#10251d');g.addColorStop(1,'#0a1612');
+  const cs=getComputedStyle(document.documentElement),pc=(k,d)=>cs.getPropertyValue(k).trim()||d;
+  g.addColorStop(0,pc('--poster-1','#173629'));g.addColorStop(.42,pc('--poster-2','#10251d'));g.addColorStop(1,pc('--poster-3','#0a1612'));
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
   const heroY=HEAD+slack*0.4;
   g=ctx.createRadialGradient(W/2,heroY+120,30,W/2,heroY+120,620);
@@ -2152,10 +2171,10 @@ document.addEventListener('keydown',e=>{
   if(e.key!=='Escape')return;
   const open=['confirmModal','rulesModal'].map(id=>document.getElementById(id)).find(m=>!m.hidden);
   if(open){open.hidden=true;return}
-  if(chatOpen&&G){chatOpen=false;paintChat();if(G.phase!=='lobby')layout(innerWidth/innerHeight>1.25)}
+  if(chatOpen&&G){chatOpen=false;paintChat();if(G.phase!=='lobby')layout(viewWide())}
 });
 document.getElementById('chatClose').addEventListener('click',()=>{
-  chatOpen=false;paintChat();if(G&&G.phase!=='lobby')layout(innerWidth/innerHeight>1.25);
+  chatOpen=false;paintChat();if(G&&G.phase!=='lobby')layout(viewWide());
 });
 document.getElementById('chatBackdrop').addEventListener('click',()=>{
   chatOpen=false;paintChat();
@@ -2209,7 +2228,7 @@ document.addEventListener('click',async e=>{
   }
   if(e.target.closest('#chatBtn')||e.target.closest('#scChatBtn')){
     chatOpen=!chatOpen;paintChat();
-    if(G&&G.phase!=='lobby')setTimeout(()=>layout(innerWidth/innerHeight>1.25),20);
+    if(G&&G.phase!=='lobby')setTimeout(()=>layout(viewWide()),20);
     if(chatOpen)setTimeout(()=>{const m=document.getElementById('chatMsgs');if(m)m.scrollTop=m.scrollHeight},0);
     return;
   }
@@ -2766,7 +2785,7 @@ function stripHTML(){
 function table(){
   const snap=snapTable();
   app.className='t';
-  const wide=innerWidth/innerHeight>1.25;
+  const wide=viewWide();
   const board=[0,1,2,3].map(s=>{const b=G.board[s];let cs='';
     if(b)for(let r=b[0];r<=b[1];r++){const id=s*13+r-1;cs+=card(id,id===G.last?'last':'')}
     else cs=`<div class="slot">${use(s)}<span>7</span></div>`;
@@ -2814,6 +2833,7 @@ function table(){
 // Sizes every card to fit 100% within the available viewport height without any vertical scroll
 function layout(wide){
   if(!G||G.phase==='lobby')return;
+  fitFor=document.documentElement.clientWidth+'x'+document.documentElement.clientHeight;
   const bi=app.querySelector('.bi');if(bi)bi.className='bi '+(wide?'w':'');
   const col=app.querySelector('.table-col')||app;
   const n=G.hand.length,bRows=wide?2:4,W=Math.max(240,col.clientWidth-16);
@@ -3101,13 +3121,36 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible'){stopRec(false);return passIfAway()}
   resumedAt=Date.now(); // messages that arrived while the screen was off go to chat, not to seat bubbles
   if(T&&!practiceMode&&(!es||es.readyState!==1))connect();
-  keepAwake();
+  keepAwake();settleView();
 });
+// Portrait or landscape comes from the page's own size. On an iPhone the keyboard and the address bar shrink
+// innerHeight (the visible part) but not the page, and Safari often sends no resize when they go away, so
+// innerWidth/innerHeight left the table in the landscape layout with the wrong card sizes after the URL bar.
+function viewWide(){const d=document.documentElement;return d.clientWidth/Math.max(1,d.clientHeight)>1.25}
+// Whenever the visible area settles (keyboard or address bar closed, page back from the tab switcher, a field
+// blurred), undo any scroll Safari left behind and re-fit the table if its size no longer matches.
+let settleTimer=0,fitFor='';
+function settleView(){
+  clearTimeout(settleTimer);
+  settleTimer=setTimeout(()=>{
+    const kb=window.visualViewport&&visualViewport.height<document.documentElement.clientHeight*.75;
+    if(kb&&document.activeElement&&document.activeElement.matches&&document.activeElement.matches('input,textarea'))return; // typing: leave it alone
+    if(scrollX||scrollY||(window.visualViewport&&(visualViewport.offsetTop||visualViewport.pageTop)))window.scrollTo(0,0);
+    if(document.scrollingElement&&document.scrollingElement.scrollTop)document.scrollingElement.scrollTop=0;
+    const d=document.documentElement,key=d.clientWidth+'x'+d.clientHeight;
+    if(G&&G.phase!=='lobby'&&app.classList.contains('t')&&key!==fitFor){layout(viewWide());placeBubbles();placeTray()}
+  },180);
+}
+if(window.visualViewport)visualViewport.addEventListener('resize',settleView);
+addEventListener('focusout',settleView);
+addEventListener('pageshow',settleView);
+addEventListener('orientationchange',settleView);
 addEventListener('resize',()=>{
+  settleView();
   paintChat();placeBubbles();placeTray();closeSettings();
   if(!G||G.phase==='lobby'||document.activeElement?.id==='chatIn')return;
   cancelAnimationFrame(rafId);
-  rafId=requestAnimationFrame(()=>layout(innerWidth/innerHeight>1.25));
+  rafId=requestAnimationFrame(()=>layout(viewWide()));
 });
 if(T)connect();else render();
 </script>
