@@ -569,8 +569,10 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.97)}}
 #qTray{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:min(320px,calc(100vw - 24px))}
 .ph-actions{grid-column:1/-1;display:flex;gap:6px}
-.ph.my{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-style:dashed;border-color:rgba(var(--gold-rgb),.55)}
-.ph.ph-edit{flex:none;width:44px;text-align:center;padding:0}
+.ph-own{display:flex;gap:4px;min-width:0}
+.ph.my{flex:1;min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;border-style:dashed;border-color:rgba(var(--gold-rgb),.55)} /* wraps to two lines like the others */
+.ph.my.empty{color:var(--gold-1);text-align:center}
+.ph-pen{flex:none;width:34px;padding:0;border-radius:12px;cursor:pointer;font-size:13px;background:var(--surface);border:1px solid var(--line-hi)}
 .ph-form{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
 .ph-form input{height:40px;padding:0 12px;border-radius:12px;font-size:16px} /* 16px: iPhones zoom into smaller inputs */
 .ph-form .ph-actions>*{flex:1;height:40px;border-radius:12px}
@@ -3011,11 +3013,10 @@ function announceSetAside(){
 // pass straight away rather than make the whole table wait out the countdown.
 // ---------- table extras: quick phrases, seat bubbles, voice notes, settings ----------
 // Phrases go by index (the server has the same list), so they can never carry other text.
-const PHRASES=['Is that all you’ve got? 😏','Hurry up, I’m aging 👴','Ouch, that stings 🐝','Bow to the master 👑','Beginner’s luck 🍀','Kya baat hai! 🔥','Bas kar bhai 😂','Aaj toh gaya tu 😈']; // the defaults (server.js has the same list)
+const PHRASES=['Is that all you’ve got? 😏','Hurry up, I’m aging 👴','Ouch, that stings 🐝','Bow to the master 👑','Kya baat hai! 🔥','Bas kar bhai 😂','Aaj toh gaya tu 😈']; // the seven fixed ones (server.js has the same list)
 const MY_LINE_MAX=40;
-// the 8th phrase is the player's own: it starts as the default and can be rewritten (kept on the phone, sevensMyLine)
+// the 8th slot is the player's own line: empty until they write one (kept on the phone, sevensMyLine)
 const myLine=()=>String(getStore('sevensMyLine')||'').replace(/\s+/g,' ').trim().slice(0,MY_LINE_MAX);
-function myPhrases(){const l=PHRASES.slice();l[7]=myLine()||PHRASES[7];return l}
 const MIC_SVG='<svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
 const PLAY_ICONS='<svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>';
 let resumedAt=0,phraseAt=0,othersBuzzAt=0;
@@ -3082,12 +3083,13 @@ function openTray(){
   const b=document.getElementById('qBtn');if(b)b.classList.add('on');
 }
 function trayHTML(editing){
-  const list=myPhrases();
-  const own=editing
-    ?`<form class="ph-form" id="phForm"><input id="phIn" maxlength="${MY_LINE_MAX}" autocomplete="off" aria-label="Your own quick phrase" value="${esc(list[7])}" placeholder="${esc(PHRASES[7])}"><div class="ph-actions"><button type="button" class="btn-ghost" data-phreset="1">Reset</button><button class="btn" type="submit">Save</button></div></form>`
-    :`<div class="ph-actions"><button type="button" class="ph my" role="menuitem" data-ph="7">${esc(list[7])}</button><button type="button" class="ph ph-edit" data-phedit="1" aria-label="Change your own phrase">✏️</button></div>`;
-  return list.slice(0,7).map((p,i)=>`<button type="button" class="ph" role="menuitem" data-ph="${i}">${esc(p)}</button>`).join('')+own
-    +(practiceMode||editing?'':`<button type="button" class="ph mic" id="trayMic" role="menuitem">${MIC_SVG}Voice note</button>`);
+  const mine=myLine();
+  const fixed=PHRASES.map((p,i)=>`<button type="button" class="ph" role="menuitem" data-ph="${i}">${esc(p)}</button>`).join('');
+  if(editing)return fixed+`<form class="ph-form" id="phForm"><input id="phIn" maxlength="${MY_LINE_MAX}" autocomplete="off" aria-label="Your own quick phrase" value="${esc(mine)}" placeholder="Your own line…"><div class="ph-actions"><button type="button" class="btn-ghost" data-phreset="1">Clear</button><button class="btn" type="submit">Save</button></div></form>`;
+  const own=mine
+    ?`<div class="ph-own"><button type="button" class="ph my" role="menuitem" data-ph="7">${esc(mine)}</button><button type="button" class="ph-pen" data-phedit="1" aria-label="Change your own phrase">✏️</button></div>`
+    :`<button type="button" class="ph my empty" role="menuitem" data-phedit="1">✏️ Your line</button>`;
+  return fixed+own+(practiceMode?'':`<button type="button" class="ph mic" id="trayMic" role="menuitem">${MIC_SVG}Voice note</button>`);
 }
 function editPhrases(){
   const t=document.getElementById('qTray');if(!t)return;
@@ -3096,7 +3098,7 @@ function editPhrases(){
 }
 function savePhrases(reset){
   const i=document.getElementById('phIn'),v=reset||!i?'':i.value.replace(/\s+/g,' ').trim().slice(0,MY_LINE_MAX);
-  setStore('sevensMyLine',v&&v!==PHRASES[7]?v:null);
+  setStore('sevensMyLine',v||null);
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   const t=document.getElementById('qTray');if(t){t.classList.remove('editing');t.innerHTML=trayHTML();placeTray()}
 }
@@ -3117,8 +3119,9 @@ function closePops(){
   const b=document.getElementById('qBtn');if(b)b.classList.remove('on');
   closeSettings();
 }
-function sendPhrase(i){ // i: the slot (0-7); the phrase may be the player's own rewrite
-  const text=myPhrases()[i];
+function sendPhrase(i){ // i: 0-6 a fixed phrase, 7 the player's own line
+  const own=i===7,text=own?myLine():PHRASES[i];
+  if(own&&!text)return editPhrases();
   closePops();
   if(!G||!text)return;
   if(Date.now()-phraseAt<2000)return toast('Wait a moment before sending again');
@@ -3128,7 +3131,7 @@ function sendPhrase(i){ // i: the slot (0-7); the phrase may be the player's own
     P_STATE.chat.push({id:++P_STATE.chatSeq,name:P_STATE.players[0].name,text,sys:false,kind:'phrase',pid:1});
     return syncPracticeView();
   }
-  api(text===PHRASES[i]?{a:'chat',phrase:i}:{a:'chat',custom:text}).then(r=>{if(r&&r.err)toast(r.err==='offline'?'You’re offline. Try again.':r.err)});
+  api(own?{a:'chat',custom:text}:{a:'chat',phrase:i}).then(r=>{if(r&&r.err)toast(r.err==='offline'?'You’re offline. Try again.':r.err)});
 }
 
 // Table settings: felt colour and vibration, remembered on this phone only

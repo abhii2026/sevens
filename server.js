@@ -29,8 +29,8 @@ const TURN_WAIT = +process.env.TURN_WAIT_MS || 10000;
 const SEAT_MAX = 60, IP_FLOOD_MAX = 300;
 const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
 // One-tap phrases. Sent by index, so a "phrase" can never carry arbitrary text. index.html has the same list.
-// Default quick phrases (players can rewrite any of them on their phone; edited ones arrive as {custom}).
-const PHRASES = ['Is that all you’ve got? 😏', 'Hurry up, I’m aging 👴', 'Ouch, that stings 🐝', 'Bow to the master 👑', 'Beginner’s luck 🍀', 'Kya baat hai! 🔥', 'Bas kar bhai 😂', 'Aaj toh gaya tu 😈'];
+// The seven fixed quick phrases; the 8th is each player's own line, sent as {custom}.
+const PHRASES = ['Is that all you’ve got? 😏', 'Hurry up, I’m aging 👴', 'Ouch, that stings 🐝', 'Bow to the master 👑', 'Kya baat hai! 🔥', 'Bas kar bhai 😂', 'Aaj toh gaya tu 😈'];
 const PHRASE_GAP = 2000, MY_LINE_MAX = 40;
 // Voice notes: short clips uploaded once, kept in memory per table, fetched by players only when they tap play.
 const VOICE_MAX_BYTES = 160 * 1024, VOICE_MIN_MS = 500, VOICE_MAX_MS = 8500, VOICE_PER_TABLE = 15, VOICE_GAP = 3000, VOICE_PER_MIN = 10;
