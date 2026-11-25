@@ -422,7 +422,6 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 }
 .hl .card.ok:active{scale:.96}
 .hl .card.no{cursor:default}
-.hl .card.pending{translate:0 -22px;opacity:.55;pointer-events:none}
 
 .log{
   flex:none;margin-top:2px;min-height:15px;
@@ -1500,6 +1499,14 @@ function pPlay(idx,id){
 function applyIncomingState(nextG){
   // an /api reply can arrive after newer pushes from the event stream: never step back to an older state
   if(G&&nextG&&G.room===nextG.room&&G.you===nextG.you&&nextG.v<G.v)return;
+  if(pred){
+    if(nextG&&nextG.room===pred.server.room&&predates(nextG)){
+      // the server hasn't applied our move yet: take everything new (chat, who's online) but keep the move on screen
+      pred.server=nextG;
+      const shown=predictMove(nextG,pred.kind,pred.id);
+      nextG=shown;
+    }else settle(); // confirmed (or the round moved on): the server's state takes over
+  }
   const prevLast=G?G.last:-1;
   G=nextG;
   waitUntil=G.wait?Date.now()+G.wait.left*1000:0;
@@ -1545,7 +1552,19 @@ function noteRenderTime(ms){
   slowRenders=ms>120?slowRenders+1:0;
   if(slowRenders>=3){document.documentElement.classList.add('lite');setStore(LITE_KEY,'1')}
 }
-addEventListener('pointerdown',e=>{if(e.target.closest&&e.target.closest('.hand'))pressAt=Date.now()},{capture:true,passive:true});
+// Cards are played when the finger lifts on the card it touched, not on the click that follows: a phone
+// delivers that click 100-350ms later, which made every move feel sluggish.
+let downCard=null,tapAt=0;
+const cardAt=e=>{const c=e.target.closest&&e.target.closest('.hl [data-c]');return c?{id:+c.dataset.c,el:c}:null};
+addEventListener('pointerdown',e=>{
+  if(e.target.closest&&e.target.closest('.hand'))pressAt=Date.now();
+  const c=cardAt(e);downCard=c&&e.isPrimary?c.id:null;
+},{capture:true,passive:true});
+addEventListener('pointerup',e=>{
+  const c=cardAt(e),was=downCard;downCard=null;
+  if(c&&was===c.id&&e.isPrimary&&(e.button===0||e.pointerType!=='mouse')){tapAt=Date.now();tap(c.id,c.el)}
+},{capture:true,passive:true});
+addEventListener('pointercancel',()=>{downCard=null},{capture:true,passive:true});
 ['pointerup','pointercancel'].forEach(t=>addEventListener(t,()=>{
   if(!pressAt)return;pressAt=0;
   if(heldRender)setTimeout(()=>{if(heldRender&&!pressAt)requestRender()},0); // after the click has been handled
@@ -1659,6 +1678,7 @@ setInterval(()=>{
   if(T&&!practiceMode&&es&&es.readyState===1&&Date.now()-lastActive<30*60000)fetch('/health',{cache:'no-store'}).catch(()=>{});
 },5*60000);
 function forgetSeat(){
+  settle();
   T='';setStore('sevensT',null);G=null;lastSig='';
   render();
 }
@@ -1701,12 +1721,67 @@ function tap(id,el){
     if(el&&!calm())el.animate([{transform:'none'},{transform:'translateX(-5px)'},{transform:'translateX(5px)'},{transform:'translateX(-3px)'},{transform:'none'}],{duration:260});
     return toast(G&&G.turn===G.you?(G.legal.length?'That card can\u2019t be played yet':'No card to play. Tap Pass.'):'Wait for your turn');
   }
-  if(playing!=null)return; // one play in flight: a second tap would only come back as an error
-  playing=id;if(el)el.classList.add('pending'); // react at once; the server's reply can take a moment on a phone
-  const done=()=>{if(playing===id)playing=null;clearTimeout(t)},t=setTimeout(done,4000);
-  api({a:'play',id}).then(r=>{done();if(r&&r.err){toast(r.err);if(el&&el.isConnected)el.classList.remove('pending')}});
+  if(practiceMode)return api({a:'play',id}); // practice runs locally: already instant
+  if(pred)return; // one move in flight: a second tap would only come back as an error
+  sendMove('play',id);
 }
-let playing=null;
+
+// ---------- optimistic moves ----------
+// A move never waits for the server: the client already knows what is legal, so the card flies to the felt
+// (or the pass happens) in the same frame, and the server's state confirms it. The server stays the referee:
+// if it refuses the move (the turn moved on, connection lost), the table rolls back with a message.
+let pred=null; // {kind,id,server,timer}: the move shown ahead of the server, and the last real state to fall back to
+function predictMove(g,kind,id){
+  const n=JSON.parse(JSON.stringify(g)),me=n.players.find(p=>p.id===n.you),who=me?me.name:'You';
+  if(kind==='play'){
+    const s=id/13|0,r=id%13+1,b=n.board[s];
+    n.hand=n.hand.filter(c=>c!==id);
+    if(!b)n.board[s]=[r,r];else if(r<b[0])b[0]=r;else b[1]=r;
+    n.last=id;if(me)me.n=n.hand.length;
+    n.log=[...n.log,who+' played '+RK[r]+SYM[s]].slice(-5);
+  }else n.log=[...n.log,who+' has no move and passes'].slice(-5);
+  n.legal=[];n.pass=0;n.wait=null;
+  if(kind==='play'&&!n.hand.length){n.turn=null;return n} // out: the round's end comes from the server
+  // next seat that is still in the round, as the server's advance() picks it
+  const ps=n.players,i=ps.findIndex(p=>p.id===n.turn);
+  for(let k=1;k<=ps.length;k++){const q=ps[(i+k)%ps.length];if(!q.spec&&!q.place&&q.n>0){n.turn=q.id;break}}
+  return n;
+}
+function sendMove(kind,id){
+  const server=G;
+  pred={kind,id,server,timer:setTimeout(()=>rollback('Your connection is slow. Try again.'),8000)};
+  passUntil=0;
+  showState(predictMove(G,kind,id));
+  api(kind==='play'?{a:'play',id}:{a:'pass'}).then(r=>{
+    if(!r||!r.err)return;
+    const msg=r.err==='offline'?'You’re offline. Try again.':r.err;
+    if(pred&&pred.kind===kind&&pred.id===id)rollback(msg);else toast(msg); // the reply's own state may already have replaced the move
+  });
+}
+// Is this server state from before our move was applied? (Then it must not undo what the player already sees.)
+function predates(g){
+  if(!pred||g.phase!=='playing'||g.turn!==g.you||g.round!==pred.server.round)return false;
+  if(pred.kind==='play')return g.hand.includes(pred.id);
+  return JSON.stringify(g.board)===JSON.stringify(pred.server.board)&&String(g.log.slice(-1))===String(pred.server.log.slice(-1));
+}
+function settle(){if(pred){clearTimeout(pred.timer);pred=null}}
+function rollback(msg){
+  if(!pred)return;
+  const back=pred.server;settle();
+  if(practiceMode||!T||!G||G.room!==back.room||G.you!==back.you)return; // left the table meanwhile
+  flownLast=back.last; // so the card flies again when it really is played
+  lastSig='';showState(back);
+  if(msg)toast(msg);
+}
+// Puts a state on screen at once (no waiting for a finger to lift: moves come from taps that already ended).
+function showState(g){
+  const prevLast=G?G.last:-1;
+  G=g;
+  if(G.last>=0&&G.last!==prevLast)sfx('card');
+  const sig=stateSig(G);
+  if(sig===lastSig){paintChat();return}
+  lastSig=sig;lastCore=coreSig(G);render();
+}
 
 function askLeaveTable(){
   const modal=document.getElementById('confirmModal');
@@ -2008,9 +2083,11 @@ document.addEventListener('click',async e=>{
     if(chatOpen)setTimeout(()=>{const m=document.getElementById('chatMsgs');if(m)m.scrollTop=m.scrollHeight},0);
     return;
   }
-  const c=e.target.closest('.hl [data-c]');if(c)return tap(+c.dataset.c,c);
+  const c=e.target.closest('.hl [data-c]');if(c)return Date.now()-tapAt<1000?undefined:tap(+c.dataset.c,c); // already played on pointerup
   const rr=e.target.closest('.res-row[aria-controls]');if(rr)return toggleResRow(rr);
-  const a=e.target.closest('[data-a]');if(a&&a.id==='passBtn'){a.disabled=true;passUntil=0}
+  const a=e.target.closest('[data-a]');
+  if(a&&a.id==='passBtn'&&!practiceMode){if(!pred&&G&&G.turn===G.you&&!(G.legal||[]).length)sendMove('pass');return}
+  if(a&&a.id==='passBtn'){a.disabled=true;passUntil=0}
   if(a){const r=await api({a:a.dataset.a});if(r&&r.err)toast(r.err);return}
 });
 
@@ -2511,6 +2588,9 @@ function animateTable(snap){
     const n=c.getBoundingClientRect(),dx=o.left-n.left,dy=o.top-n.top;
     if(Math.abs(dx)+Math.abs(dy)>1)c.animate([{transform:`translate(${dx}px,${dy}px)`},{transform:'none'}],{duration:340,easing:EASE});
   });
+  if(last>=0&&last===flew&&document.querySelector('.fly')){
+    const d=app.querySelector('.board .card[data-c="'+last+'"]');if(d)d.style.visibility='hidden';
+  }
   if(last<0||last===flew)return;
   const dest=app.querySelector('.board .card.last'),from=snap.cards.get(last)||snap.chip;
   if(!dest||!from)return;
@@ -2526,7 +2606,10 @@ function animateTable(snap){
     {opacity:1,offset:.25},
     {transform:'none',opacity:1}
   ],{duration:own?380:460,easing:EASE});
-  const land=()=>{g.remove();dest.style.visibility='';dest.classList.add('landed')};
+  const land=()=>{g.remove();
+    const d=dest.isConnected?dest:app.querySelector('.board .card[data-c="'+last+'"]');
+    if(d){d.style.visibility='';d.classList.add('landed')}
+  };
   a.onfinish=land;a.oncancel=land;
 }
 
@@ -2661,7 +2744,7 @@ function passIfAway(){
   if(!G||practiceMode||!document.hidden||G.phase!=='playing'||G.turn!==G.you||(G.legal||[]).length)return;
   const k=JSON.stringify([G.room,G.round,G.board,G.last,G.log&&G.log[G.log.length-1]]);
   if(k===awayPassKey)return; // once per turn
-  awayPassKey=k;passUntil=0;api({a:'pass'});
+  awayPassKey=k;if(!pred)sendMove('pass');
 }
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return passIfAway();
