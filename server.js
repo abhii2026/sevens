@@ -116,7 +116,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [] };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [], joins: [] };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -174,6 +174,7 @@ function commonView(S) {
     ? { name: S.invalidated.name, canDeal: !!S.invalidated.canDeal, left: Math.max(0, Math.ceil((S.invalidated.until - Date.now()) / 1000)) }
     : null;
   return {
+    v: S.ver || 0, // state version: a client drops any state older than one it already has
     phase: S.phase, round: S.round || 0, host: hostId(S), max: MAX, room: S.code, url: shareUrl(S),
     players: S.players.map(q => ({
       id: q.id, name: q.name, n: q.hand.length, on: q.on, bot: !!q.bot,
@@ -185,7 +186,8 @@ function commonView(S) {
     board: S.board, turn: cur ? cur.id : null, removed: S.removed || [],
     last: S.last, log: S.log.slice(-5),
     chat: S.chat.slice(-40), alerts: S.alerts, wait, invalid: inv,
-    history: S.phase === 'final' ? S.history : undefined // only needed for the end-of-game results
+    history: S.phase === 'final' ? S.history : undefined, // only needed for the end-of-game results
+    joins: S.phase === 'final' ? S.joins : undefined // late joiners' starting points, counted in the final totals
   };
 }
 // The private part: never contains another player's cards.
@@ -208,6 +210,9 @@ function sseWrite(res, payload) {
 
 function push(S) {
   clearTimeout(S.timer);
+  // Every push is a new version. An /api reply and the event stream travel separately, so a reply can reach the
+  // phone after newer pushes; without this the client would step back to an old turn and wait forever.
+  S.ver = (S.ver || 0) + 1;
   if (S.phase === 'playing' && S.players.length) {
     if (S.turn < 0 || S.turn >= S.players.length || !active(S.players[S.turn])) {
       advance(S);
@@ -298,14 +303,16 @@ function notify(S, msg, kind = '') {
 }
 
 // ============ Bot: Traps opponents with high-point cards (8..K) while shedding its own heavy cards ============
-const BOT_MS = +process.env.BOT_MS || 50;
+// Render's free tier gives 0.1 CPU. Its quota freezes the whole process once spent (about 10ms per 100ms), so a
+// 50ms think stalls every table for ~100ms; there bots think in short bursts that fit inside one slice.
+const BOT_MS = +env('BOT_MS', ON_RENDER ? 8 : 50);
 const OWN = Array.from({ length: Math.max(16, MAX + 4) }, () => new Uint8Array(52)), TMP = [];
 // Cards set aside for the current deal (not in anyone's hand). Set by botChoose/heurChoose; all bot code is synchronous.
 const GONE = new Uint8Array(52);
 function setGone(removed) { GONE.fill(0); if (removed) for (const c of removed) GONE[c] = 1; }
 // Bot search runs on the event loop, so its total cost is capped: every table's bots together may
 // spend at most BOT_SHARE_MS of each second thinking. Under load they think less instead of stalling players.
-const BOT_SHARE_MS = +process.env.BOT_SHARE_MS || 300;
+const BOT_SHARE_MS = +env('BOT_SHARE_MS', ON_RENDER ? 40 : 300);
 let botWindow = 0, botSpent = 0;
 function botBudget() {
   const now = Date.now();
@@ -585,6 +592,30 @@ function startGrace(S, p) {
   }, GRACE);
 }
 
+// Lowest total wins, so someone joining after round 1 would start with an unfair lead at 0. On their first deal
+// they start at 90% of the highest running total among the players already seated (rounded up).
+const JOIN_SHARE = 0.9;
+function gameTotals(S) {
+  const t = new Map();
+  for (const h of S.history) for (const r of h.rows) t.set(r.id, (t.get(r.id) || 0) + (r.pts || 0));
+  for (const j of S.joins) t.set(j.id, (t.get(j.id) || 0) + j.pts);
+  return t;
+}
+function applyJoinPoints(S) {
+  if (!S.history.length) return;
+  const totals = gameTotals(S);
+  const played = new Set(S.history.flatMap(h => h.rows.map(r => r.id)));
+  const fresh = S.players.filter(p => !played.has(p.id) && !S.joins.some(j => j.id === p.id));
+  if (!fresh.length) return;
+  const max = Math.max(0, ...S.players.filter(p => played.has(p.id)).map(p => totals.get(p.id) || 0));
+  for (const p of fresh) {
+    const pts = Math.ceil(JOIN_SHARE * max);
+    S.joins.push({ id: p.id, name: p.name, round: S.round, pts });
+    p.score = (p.score || 0) + pts;
+    if (pts) notify(S, p.name + ' joins with ' + pts + ' pts (90% of the table’s highest, ' + max + ').', 'join');
+  }
+}
+
 function start(S) {
   // Phones drop their connection whenever the screen locks, so someone briefly offline at the deal is
   // still dealt in (with the usual reconnect grace). Only players who left, or never connected, are removed.
@@ -631,7 +662,7 @@ function start(S) {
   S.round = (S.round || 0) + 1;
   S.turn = S.players.findIndex(p => p.hand.includes(H7)); S.phase = 'playing';
   addLog(S, 'Round ' + S.round + ' dealt: ' + each + ' cards each. ' + S.players[S.turn].name + ' holds the 7♥ and starts');
-  if (S.removed.length) addChat(S, '', 'Round ' + S.round + ': ' + S.removed.map(cardName).join(' ') + ' set aside so all ' + n + ' players hold ' + each + ' cards.', true);
+  applyJoinPoints(S);
   for (const p of S.players) if (!p.on) startGrace(S, p); // dealt in while briefly offline
   maybeLastThree(S);
   push(S); return {};
@@ -780,7 +811,7 @@ function act(b, ip) {
   if (b.a === 'resetscores') {
     if (p.id !== hostId(S)) return { err: 'Only the host can reset scores', state: view(S, p) };
     if (S.phase === 'playing') return { err: 'Cannot reset during an active round', state: view(S, p) };
-    S.round = 0; S.history = [];
+    S.round = 0; S.history = []; S.joins = [];
     S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; });
     notify(S, 'The host reset all table scores to 0.');
     push(S); return { state: view(S, p) };
@@ -799,7 +830,7 @@ function act(b, ip) {
   if (b.a === 'newgame') {
     if (p.id !== hostId(S)) return { err: 'Only the host can start a new game', state: view(S, p) };
     if (S.phase !== 'final') return { err: 'End the game first', state: view(S, p) };
-    S.phase = 'lobby'; S.round = 0; S.history = []; S.turn = -1;
+    S.phase = 'lobby'; S.round = 0; S.history = []; S.joins = []; S.turn = -1;
     S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.removed = []; S.alerts = [];
     S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; q.hand = []; q.place = 0; q.done = false; q.spectator = false; });
     notify(S, 'New game! Scores are back to 0.', 'join');
@@ -996,7 +1027,7 @@ if (require.main === module) {
     console.log('    http://localhost:' + PORT);
     console.log('\n  Share the table link shown in the lobby (/?r=CODE). Empty rooms close after 1 minute.\n');
     if (PUBLIC_ORIGIN) console.log('  Public address: ' + PUBLIC_ORIGIN + (FORCE_HTTPS ? ' (http redirects to https)' : ''));
-    if (ON_RENDER) console.log('  Render detected: TRUST_PROXY=' + TRUST_PROXY + ', client IP header: ' + (CLIENT_IP_HEADER || 'none'));
+    if (ON_RENDER) console.log('  Render detected: TRUST_PROXY=' + TRUST_PROXY + ', client IP header: ' + (CLIENT_IP_HEADER || 'none') + ', bot think ' + BOT_MS + 'ms (' + BOT_SHARE_MS + 'ms/s)');
     console.log('');
   });
   const beat = setInterval(() => {
@@ -1004,6 +1035,14 @@ if (require.main === module) {
     const now = Date.now();
     for (const [key, rec] of rateMap) if (now > rec.resetAt) rateMap.delete(key);
   }, 15000);
+  // If the event loop stalls (a starved CPU, a slow bot), say so in the log, at most once a minute.
+  const lag = require('perf_hooks').monitorEventLoopDelay({ resolution: 20 }); lag.enable();
+  const lagCheck = setInterval(() => {
+    const worst = lag.max / 1e6;
+    if (worst > 200) console.warn('Event loop stalled up to ' + Math.round(worst) + 'ms in the last minute (p99 ' + Math.round(lag.percentile(99) / 1e6) + 'ms, ' + rooms.size + ' tables).');
+    lag.reset();
+  }, 60000);
+  lagCheck.unref();
   // All state is in memory: log unexpected errors and keep serving rather than dropping every game.
   process.on('uncaughtException', e => console.error('uncaught:', e));
   process.on('unhandledRejection', e => console.error('unhandled rejection:', e));

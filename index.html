@@ -60,6 +60,7 @@ body{
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
   text-rendering:optimizeLegibility;
+  touch-action:manipulation; /* no double-tap-zoom wait: quick taps on cards register at once */
 }
 ::selection{background:rgba(var(--gold-rgb),.35);color:#fff}
 h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.02em}
@@ -254,9 +255,13 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   border-color:rgba(var(--gold-rgb),.7);
   background:linear-gradient(90deg,rgba(var(--gold-rgb),.18),rgba(10,18,15,.62) 80%);
   box-shadow:0 0 0 3px rgba(var(--gold-rgb),.12),0 6px 18px rgba(0,0,0,.35);
-  animation:turnRing 2.4s ease-in-out infinite;
+  position:relative;
 }
-@keyframes turnRing{50%{box-shadow:0 0 0 5px rgba(var(--gold-rgb),.2),0 6px 18px rgba(0,0,0,.35)}}
+/* Pulses fade a ready-made glow in and out: animating opacity runs on the GPU, while animating box-shadow
+   repainted every frame of the whole game on the phone's main thread, competing with taps. */
+.pl.turn::after{content:"";position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;
+  box-shadow:0 0 0 5px rgba(var(--gold-rgb),.2);opacity:0;animation:glowPulse 2.4s ease-in-out infinite}
+@keyframes glowPulse{50%{opacity:1}}
 .pl.turn .pl-name{color:var(--gold-1)}
 .pl.turn .pl-dot{background:var(--gold-2)}
 .pl.aside{gap:4px;padding:3px 8px 3px 10px;border-style:dashed;border-color:rgba(var(--gold-rgb),.4);background:rgba(var(--gold-rgb),.06)}
@@ -271,13 +276,14 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .pl.off{opacity:.72;border-color:rgba(var(--danger-rgb),.35)}
 .pl.off .pl-dot{background:var(--danger)}
 
-/* ---------- playing cards (all geometry in cqw so one design scales to any size) ---------- */
+/* ---------- playing cards (all geometry in --u, 1% of the card width, so one design scales to any size) ---------- */
+/* Not cqw: a size container per card made every layout interleave style recalcs, about 1s per move on low-end phones. */
 .card{
   position:relative;width:var(--w,64px);aspect-ratio:5/7;flex:none;
-  container-type:inline-size;user-select:none;-webkit-user-select:none;
+  --u:calc(var(--w,64px) / 100);user-select:none;-webkit-user-select:none;
 }
 .face{
-  position:absolute;inset:0;overflow:hidden;border-radius:9cqw;
+  position:absolute;inset:0;overflow:hidden;border-radius:calc(9*var(--u));
   background:linear-gradient(155deg,#fffefb 0%,var(--card-bg) 48%,#f1ebdc 100%);
   border:1px solid var(--card-edge);
   box-shadow:0 2px 6px rgba(0,0,0,.34);
@@ -288,25 +294,25 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .ix{
   position:absolute;left:5%;top:5%;width:30%;
   display:flex;flex-direction:column;align-items:center;
-  font:700 22cqw/1 var(--sans);letter-spacing:-.07em;
+  font:700 calc(22*var(--u))/1 var(--sans);letter-spacing:-.07em;
   font-variant-numeric:lining-nums;pointer-events:none;
 }
 .ix span{display:block;white-space:nowrap}
-.ix svg{width:15cqw;height:15cqw;margin-top:2cqw;fill:currentColor;flex:none}
+.ix svg{width:calc(15*var(--u));height:calc(15*var(--u));margin-top:calc(2*var(--u));fill:currentColor;flex:none}
 .ix.bt{left:auto;top:auto;right:5%;bottom:5%;transform:rotate(180deg)}
 .pips{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
-.pip{width:32cqw;height:32cqw;fill:currentColor}
-.pip.big{width:46cqw;height:46cqw}
+.pip{width:calc(32*var(--u));height:calc(32*var(--u));fill:currentColor}
+.pip.big{width:calc(46*var(--u));height:calc(46*var(--u))}
 .fc{
-  position:absolute;inset:21% 27%;border-radius:4cqw;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3cqw;
-  border:.7cqw solid rgba(26,29,28,.2);background:rgba(26,29,28,.04);
-  box-shadow:inset 0 0 0 1.4cqw var(--card-bg),inset 0 0 0 1.9cqw rgba(26,29,28,.12);
+  position:absolute;inset:21% 27%;border-radius:calc(4*var(--u));
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(3*var(--u));
+  border:calc(.7*var(--u)) solid rgba(26,29,28,.2);background:rgba(26,29,28,.04);
+  box-shadow:inset 0 0 0 calc(1.4*var(--u)) var(--card-bg),inset 0 0 0 calc(1.9*var(--u)) rgba(26,29,28,.12);
   pointer-events:none;
 }
-.red .fc{border-color:rgba(200,50,47,.32);background:rgba(200,50,47,.05);box-shadow:inset 0 0 0 1.4cqw var(--card-bg),inset 0 0 0 1.9cqw rgba(200,50,47,.16)}
-.fc b{font:700 32cqw/1 var(--serif)}
-.fc svg{width:15cqw;height:15cqw;fill:currentColor}
+.red .fc{border-color:rgba(200,50,47,.32);background:rgba(200,50,47,.05);box-shadow:inset 0 0 0 calc(1.4*var(--u)) var(--card-bg),inset 0 0 0 calc(1.9*var(--u)) rgba(200,50,47,.16)}
+.fc b{font:700 calc(32*var(--u))/1 var(--serif)}
+.fc svg{width:calc(15*var(--u));height:calc(15*var(--u));fill:currentColor}
 .mini-card{
   display:inline-flex;align-items:center;gap:2px;
   padding:2px 5px;border-radius:5px;
@@ -378,10 +384,12 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   color:var(--gold-ink);font-weight:700;border-color:transparent;
   background:linear-gradient(180deg,#ffd27a 0%,#f0b552 55%,#e09a32 100%);
   box-shadow:0 4px 14px rgba(var(--gold-rgb),.3);
-  animation:turnGlow 2.2s ease-in-out infinite;
+  position:relative;
 }
-@keyframes turnGlow{50%{box-shadow:0 4px 24px rgba(var(--gold-rgb),.6)}}
-.banner.pass #bt{color:var(--text-2);font-weight:600;background:var(--glass);border-color:var(--line);box-shadow:none;animation:none}
+.banner.me #bt::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  box-shadow:0 4px 24px rgba(var(--gold-rgb),.6);opacity:0;animation:glowPulse 2.2s ease-in-out infinite}
+.banner.pass #bt{color:var(--text-2);font-weight:600;background:var(--glass);border-color:var(--line);box-shadow:none}
+.banner.pass #bt::after{content:none}
 .pass-btn{
   position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:8px;
   height:30px;padding:0 14px;border-radius:999px;
@@ -414,6 +422,7 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 }
 .hl .card.ok:active{scale:.96}
 .hl .card.no{cursor:default}
+.hl .card.pending{translate:0 -22px;opacity:.55;pointer-events:none}
 
 .log{
   flex:none;margin-top:2px;min-height:15px;
@@ -597,6 +606,8 @@ button.res-row:focus-visible{outline:2px solid var(--gold-2);outline-offset:-2px
 .res-chip.won{color:var(--ok-soft);background:rgba(var(--ok-rgb),.12)}
 .res-chip.won i{color:var(--ok-soft)}
 .res-chip.na{color:var(--faint)}
+.res-chip.join{color:var(--gold-1);background:rgba(var(--gold-rgb),.1)}
+.res-chip.join i{color:var(--gold-2)}
 .sc-roast{flex:none;margin:8px 8px 0;font-size:12px;line-height:1.4;color:var(--faint);font-style:italic;text-align:center}
 .sc-roast b{font-style:normal;font-weight:600;color:var(--muted)}
 
@@ -1112,6 +1123,10 @@ body.round-over .chat-backdrop{z-index:255}
   .icon-btn{padding:0 8px}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* Lite: phones with few cores or little memory (or measured slow renders) skip the costliest paint effects.
+   Frosted-glass blur and blended felt grain are redrawn whenever anything under them changes. */
+html.lite *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+html.lite .board::before,html.lite .lp-bg::before{display:none}
 </style>
 </head>
 <body>
@@ -1192,7 +1207,10 @@ const ROASTS=[
 ];
 const isRed=s=>s===1||s===2, cardPts=id=>(id%13)+1, handPts=h=>h.reduce((a,c)=>a+cardPts(c),0);
 const esc=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const use=(s,c='')=>`<svg class="${c}"><use href="#s${s}"/></svg>`;
+// Suit shapes drawn inline (same paths as the #s0-#s3 symbols). Each <use> builds its own shadow tree, and a
+// table has ~170 of them, so they were a large part of every layout on low-end phones.
+const SUIT_PATH=[0,1,2,3].map(i=>document.getElementById('s'+i).innerHTML);
+const use=(s,c='')=>`<svg class="${c}" viewBox="0 0 100 100">${SUIT_PATH[s]}</svg>`;
 
 function getStore(k){
   try{
@@ -1255,7 +1273,7 @@ function sfx(kind){
 function card(id,cls='',interactive=false){
   const s=id/13|0,r=id%13+1;let body='';
   if(r>10)body=`<div class="fc"><b>${RK[r]}</b>${use(s)}</div>`;
-  else body=`<div class="pips"><svg class="pip${r===1?' big':''}"><use href="#s${s}"/></svg></div>`;
+  else body=`<div class="pips">${use(s,'pip'+(r===1?' big':''))}</div>`;
   const ix=`<div class="ix"><span>${RK[r]}</span>${use(s)}</div>`;
   const a11y=interactive?' role="button" tabindex="0"':'';
   return `<div class="card ${isRed(s)?'red':''} ${cls}" data-c="${id}"${a11y} aria-label="${RK[r]} of ${['spades','hearts','diamonds','clubs'][s]} (${r} pts)"><div class="face">${ix}${body}${ix.replace('class="ix"','class="ix bt"')}</div></div>`;
@@ -1274,6 +1292,8 @@ try{localStorage.setItem('sevensCid',CID)}catch(e){try{sessionStorage.setItem('s
 const app=document.getElementById('app');
 let invUntil=0,passUntil=0;
 const stateSig=g=>g?JSON.stringify([g.phase,g.round,g.you,g.host,g.room,g.turn,g.last,g.spec,g.place,g.wait?g.wait.name:'',g.invalid,g.board,g.hand,g.legal,g.log,g.players,g.history?g.history.length:0]):'';
+// the same without who is online or bot-played: when only that changes, only the player strip needs repainting
+const coreSig=g=>stateSig({...g,players:g.players.map(({on,bot,...q})=>q)});
 
 function legacyCopy(txt){
   const ta=document.createElement('textarea');
@@ -1478,6 +1498,8 @@ function pPlay(idx,id){
 }
 
 function applyIncomingState(nextG){
+  // an /api reply can arrive after newer pushes from the event stream: never step back to an older state
+  if(G&&nextG&&G.room===nextG.room&&G.you===nextG.you&&nextG.v<G.v)return;
   const prevLast=G?G.last:-1;
   G=nextG;
   waitUntil=G.wait?Date.now()+G.wait.left*1000:0;
@@ -1498,9 +1520,36 @@ function applyIncomingState(nextG){
   announceSetAside();
   const sig=stateSig(G);
   if(sig===lastSig){paintChat();return}
-  lastSig=sig;
-  render();
+  // someone's connection flickered (phones do this constantly) but the game didn't change: repaint just the strip
+  const core=coreSig(G);
+  if(lastSig&&core===lastCore&&G.phase==='playing'&&app.classList.contains('t')){
+    lastSig=sig;const pl=app.querySelector('.players');if(pl)pl.innerHTML=stripHTML();paintChat();return;
+  }
+  lastSig=sig;lastCore=core;
+  requestRender();
 }
+// A redraw replaces every card. If it lands between a finger touching a card and lifting, the browser
+// fires no click and the tap is lost, so while a finger is on the hand redraws wait for it (at most 1.5s).
+let lastCore='',pressAt=0,heldRender=false;
+function requestRender(){
+  if(pressAt&&Date.now()-pressAt<1500){heldRender=true;return}
+  heldRender=false;
+  const a=performance.now();render();noteRenderTime(performance.now()-a);
+}
+// Low-end phones get the lite look: decided from device hints, or after three slow table renders in a row.
+const LITE_KEY='sevensLite';
+let slowRenders=0;
+if((navigator.hardwareConcurrency||8)<=4||(navigator.deviceMemory||8)<=2||getStore(LITE_KEY)==='1')document.documentElement.classList.add('lite');
+function noteRenderTime(ms){
+  if(document.documentElement.classList.contains('lite')||!G||G.phase==='lobby')return;
+  slowRenders=ms>120?slowRenders+1:0;
+  if(slowRenders>=3){document.documentElement.classList.add('lite');setStore(LITE_KEY,'1')}
+}
+addEventListener('pointerdown',e=>{if(e.target.closest&&e.target.closest('.hand'))pressAt=Date.now()},{capture:true,passive:true});
+['pointerup','pointercancel'].forEach(t=>addEventListener(t,()=>{
+  if(!pressAt)return;pressAt=0;
+  if(heldRender)setTimeout(()=>{if(heldRender&&!pressAt)requestRender()},0); // after the click has been handled
+},{capture:true,passive:true}));
 
 async function api(b){
   if(practiceMode){
@@ -1652,8 +1701,12 @@ function tap(id,el){
     if(el&&!calm())el.animate([{transform:'none'},{transform:'translateX(-5px)'},{transform:'translateX(5px)'},{transform:'translateX(-3px)'},{transform:'none'}],{duration:260});
     return toast(G&&G.turn===G.you?(G.legal.length?'That card can\u2019t be played yet':'No card to play. Tap Pass.'):'Wait for your turn');
   }
-  api({a:'play',id}).then(r=>r&&r.err&&toast(r.err));
+  if(playing!=null)return; // one play in flight: a second tap would only come back as an error
+  playing=id;if(el)el.classList.add('pending'); // react at once; the server's reply can take a moment on a phone
+  const done=()=>{if(playing===id)playing=null;clearTimeout(t)},t=setTimeout(done,4000);
+  api({a:'play',id}).then(r=>{done();if(r&&r.err){toast(r.err);if(el&&el.isConnected)el.classList.remove('pending')}});
 }
+let playing=null;
 
 function askLeaveTable(){
   const modal=document.getElementById('confirmModal');
@@ -2000,9 +2053,10 @@ function paintChat(){
 
   const me=G.players.find(p=>p.id===G.you),myName=me?me.name:'';
   const msgs=G.chat||[],box=document.getElementById('chatMsgs'),lastId=msgs.length?msgs[msgs.length-1].id:0;
-  const stick=box.scrollHeight-box.scrollTop-box.clientHeight<48;
-  const sig=G.room+'|'+myName+'|'+msgs.length+'|'+lastId;
-  if(sig!==chatSig){
+  const sig=G.room+'|'+myName+'|'+msgs.length+'|'+lastId,changed=sig!==chatSig;
+  // reading scroll sizes forces a layout of the whole page, so only do it when the open chat gets new messages
+  const stick=chatOpen&&changed&&box.scrollHeight-box.scrollTop-box.clientHeight<48;
+  if(changed){
     const fresh=chatSig.startsWith(G.room+'|')?chatTop:Infinity; // no entrance on the first paint
     chatSig=sig;chatTop=lastId;
     let prev=null;
@@ -2362,8 +2416,9 @@ function buildRoundOverModal(fresh){
   </section>`;
 }
 
-// Whole-game totals from the round history (by player id, so players who left still count).
-// Lowest total wins; ties go to more rounds won. Shared by the final results and the share poster.
+// Whole-game totals from the round history (by player id, so players who left still count), plus the
+// starting points of anyone who joined after round 1. Lowest total wins; ties go to more rounds won.
+// Shared by the final results and the share poster.
 function finalStandings(){
   const hist=(G&&G.history)||[],by=new Map();
   hist.forEach((h,ri)=>h.rows.forEach(r=>{
@@ -2372,6 +2427,7 @@ function finalStandings(){
     const v=r.pts||0;
     s.name=r.name;s.total+=v;s.pts[ri]=v;if(r.place===1)s.wins++;if(s.best==null||v<s.best)s.best=v;
   }));
+  ((G&&G.joins)||[]).forEach(j=>{const s=by.get(j.id);if(s){s.total+=j.pts;s.join=j}});
   const here=new Set((G?G.players:[]).map(p=>p.id));
   return [...by.values()].map(s=>({...s,left:!here.has(s.id)}))
     .sort((a,b)=>a.total-b.total||b.wins-a.wins||a.name.localeCompare(b.name));
@@ -2397,7 +2453,8 @@ function buildFinalModal(fresh){
   const rows=st.map((p,idx)=>{
     const open=resOpen.ids.has(p.id),tags=(p.id===G.you?'<small>You</small>':'')+(p.left?'<i class="sc-tag">Left</i>':'');
     const meta=`<span class="res-meta">${p.wins?`Won ${p.wins}`:'No wins'} · best round ${p.best==null?'–':p.best}</span>`;
-    const chips=p.pts.map((v,i)=>v==null
+    const joined=p.join?`<span class="res-chip join" title="Joined in round ${p.join.round}: started at 90% of the table's highest total"><i>Joined R${p.join.round}</i>+${p.join.pts}</span>`:'';
+    const chips=joined+p.pts.map((v,i)=>v==null
       ?`<span class="res-chip na"><i>R${hist[i].round}</i>–</span>`
       :`<span class="res-chip${hist[i].rows.some(r=>r.id===p.id&&r.place===1)?' won':''}"><i>R${hist[i].round}</i>${v}</span>`).join('');
     return `<li class="res-item${idx===0?' win':''}" style="--h:${nameHue(p.name)};--i:${idx}">
@@ -2473,6 +2530,21 @@ function animateTable(snap){
   a.onfinish=land;a.oncancel=land;
 }
 
+// The player strip: the set-aside chip, then one chip per player. Chips show cards only;
+// points stay hidden until the game's final results.
+function stripHTML(){
+  const aside=(G.removed||[]).length?`<div class="pl aside" title="Not dealt this round, so every hand is the same size"><span class="pl-meta">Not in play</span>${G.removed.map(c=>miniCardBadge(c)).join('')}</div>`:'';
+  return aside+G.players.map(q=>{
+    const st=q.spec?'next round':q.bot?(practiceMode?'':'bot playing'):!q.on?'reconnecting…':'';
+    const cards=q.spec?'':`<span class="pl-cards${q.n<=3?' low':''}" aria-label="${q.n} card${q.n===1?'':'s'} left"><i></i>${q.n}</span>`;
+    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}" style="--h:${nameHue(q.name)}">
+      <span class="pl-av" aria-hidden="true">${esc((String(q.name).trim()[0]||'?').toUpperCase())}<span class="pl-dot"></span></span>
+      <span class="pl-name">${esc(q.name)}${q.id===G.you?' (you)':''}</span>
+      ${st?`<span class="pl-meta">${st}</span>`:''}${cards}
+    </div>`;
+  }).join('');
+}
+
 function table(){
   const snap=snapTable();
   app.className='t';
@@ -2488,17 +2560,7 @@ function table(){
       :(G.removed||[]).length?`<span class="suit-out spacer" aria-hidden="true">${(G.removed||[]).filter(c=>(c/13|0)===0).length>1?'A2':'A'}</span>`:'';
     return `<div class="suit">${use(s,'lab '+(isRed(s)?'red':''))}${tag}<div class="line" data-fit="b">${cs}</div></div>`}).join('');
 
-  // chips show cards only; points stay hidden until the game's final results
-  const chips=G.players.map(q=>{
-    const st=q.spec?'next round':q.bot?(practiceMode?'':'bot playing'):!q.on?'reconnecting…':'';
-    const cards=q.spec?'':`<span class="pl-cards${q.n<=3?' low':''}" aria-label="${q.n} card${q.n===1?'':'s'} left"><i></i>${q.n}</span>`;
-    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}" style="--h:${nameHue(q.name)}">
-      <span class="pl-av" aria-hidden="true">${esc((String(q.name).trim()[0]||'?').toUpperCase())}<span class="pl-dot"></span></span>
-      <span class="pl-name">${esc(q.name)}${q.id===G.you?' (you)':''}</span>
-      ${st?`<span class="pl-meta">${st}</span>`:''}${cards}
-    </div>`;
-  }).join('');
-
+  const chips=stripHTML();
   const [msg,cls]=banner(),mine=G.turn===G.you;
   if(mine&&!wasMyTurn){sfx('turn');if(navigator.vibrate)navigator.vibrate(40)}
   wasMyTurn=mine;
@@ -2512,7 +2574,7 @@ function table(){
   app.innerHTML=`${topbarHTML()}
   <div class="workspace">
     <div class="table-col">
-      <div class="players">${(G.removed||[]).length?`<div class="pl aside" title="Not dealt this round, so every hand is the same size"><span class="pl-meta">Not in play</span>${G.removed.map(c=>miniCardBadge(c)).join('')}</div>`:''}${chips}</div>
+      <div class="players">${chips}</div>
       <div class="board"><div class="bi ${wide?'w':''}">${board}</div></div>
       <div class="banner ${cls}">
         <span id="bt">${msg}</span>${passBtn()}${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait" type="button">Skip wait</button>':''}
@@ -2548,16 +2610,24 @@ function layout(wide){
     if(Math.ceil(n/cap)<=rows)break;
   }
   rows=Math.min(rows,4);
-  const st=document.documentElement.style;st.setProperty('--bw',bw+'px');st.setProperty('--hw',hw+'px');
+  const st=document.documentElement.style,bwv=bw.toFixed(1)+'px',hwv=hw.toFixed(1)+'px';
+  if(st.getPropertyValue('--bw')!==bwv)st.setProperty('--bw',bwv);
+  if(st.getPropertyValue('--hw')!==hwv)st.setProperty('--hw',hwv);
   const handEl=app.querySelector('.hand');
   if(handEl)handEl.innerHTML=handHTML(Math.max(1,Math.ceil(n/rows)));
   fit();
 }
 
+// Reads every row's size first, then positions the cards: interleaving the two forced a full layout per row,
+// which cost hundreds of ms per move on low-end phones.
 function fit(){
+  const rows=[];
   document.querySelectorAll('.line[data-fit]').forEach(line=>{
     const cs=[...line.children].filter(c=>c.classList.contains('card'));if(!cs.length)return;
-    const av=line.clientWidth,w=cs[0].offsetWidth,n=cs.length,hand=line.dataset.fit==='h';
+    rows.push([line,cs,line.clientWidth,cs[0].offsetWidth]);
+  });
+  rows.forEach(([line,cs,av,w])=>{
+    const n=cs.length,hand=line.dataset.fit==='h';
     const step=n>1?Math.min(w+(hand?10:6),(av-w)/(n-1)):0,off=hand?(av-((n-1)*step+w))/2:0;
     // natural order keeps every card's corner index readable; playable cards are lifted, not brought forward
     cs.forEach((c,i)=>{c.style.left=off+i*step+'px';c.style.zIndex=i});
