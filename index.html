@@ -11,6 +11,10 @@
   color-scheme:dark;
   /* surfaces */
   --bg:#0a1310;
+  /* table felt (themes override these on html[data-felt]) */
+  --felt-glow:rgba(64,150,108,.42);--felt-1:#184331;--felt-2:#0f2b21;
+  --sc-1:#152f25;--sc-2:#0f221b;--sc-3:#0b1813;
+  --glow:rgba(46,125,92,.55);--bg-1:#0f1c17;--bg-2:#09110e;
   --well:rgba(5,11,9,.55);            /* inputs, list rows */
   --glass:rgba(10,18,15,.6);          /* chips floating on the felt */
   --surface:rgba(255,255,255,.04);
@@ -44,6 +48,11 @@
   --ease:cubic-bezier(.22,1,.36,1);
   --grain:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
+
+/* table themes: chosen per phone in Table settings; gold, cards and text stay the same */
+html[data-felt="blue"]{--glow:rgba(56,98,168,.5);--bg-1:#0e1626;--bg-2:#080c14;--panel:linear-gradient(180deg,rgba(30,42,64,.97),rgba(15,22,36,.98));--bg:#0a0f18;--felt-glow:rgba(72,122,196,.42);--felt-1:#1a3050;--felt-2:#0f1d33;--sc-1:#16253d;--sc-2:#0f1a2c;--sc-3:#0a121f}
+html[data-felt="wine"]{--glow:rgba(150,52,74,.48);--bg-1:#1f0f14;--bg-2:#11080b;--panel:linear-gradient(180deg,rgba(58,28,37,.97),rgba(31,15,20,.98));--bg:#130a0d;--felt-glow:rgba(176,72,94,.4);--felt-1:#4a1a26;--felt-2:#2e0f18;--sc-1:#36161f;--sc-2:#251018;--sc-3:#190b10}
+html[data-felt="charcoal"]{--glow:rgba(120,124,128,.32);--bg-1:#17191a;--bg-2:#0c0d0e;--panel:linear-gradient(180deg,rgba(44,46,48,.97),rgba(23,24,25,.98));--bg:#0e0f10;--felt-glow:rgba(150,150,150,.26);--felt-1:#2c2f31;--felt-2:#1a1c1e;--sc-1:#24272a;--sc-2:#1a1c1e;--sc-3:#121314}
 
 /* ================= BASE ================= */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -329,8 +338,8 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   flex:1;min-height:0;display:flex;flex-direction:column;
   padding:8px 12px;border-radius:20px;border:1px solid transparent;
   background:
-    radial-gradient(ellipse 85% 75% at 50% 42%,rgba(64,150,108,.42) 0%,transparent 72%) padding-box,
-    linear-gradient(180deg,#184331 0%,#0f2b21 100%) padding-box,
+    radial-gradient(ellipse 85% 75% at 50% 42%,var(--felt-glow) 0%,transparent 72%) padding-box,
+    linear-gradient(180deg,var(--felt-1) 0%,var(--felt-2) 100%) padding-box,
     var(--rim) border-box;
   box-shadow:0 18px 44px rgba(0,0,0,.45),inset 0 0 70px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.06);
 }
@@ -525,6 +534,87 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 .chat form button{flex:none;width:40px;height:40px;padding:0;border-radius:50%}
 .chat form button svg{width:17px;height:17px;fill:currentColor;margin-left:2px}
 
+/* ---------- table extras: phrase button, tray, seat bubbles, voice notes, settings ---------- */
+.felt-fab{
+  position:absolute;right:8px;bottom:8px; /* placeFab() moves it off any card */z-index:2;width:34px;height:34px;padding:0;border-radius:50%;
+  display:grid;place-items:center;cursor:pointer;color:var(--gold-1);
+  background:var(--glass);border:1px solid rgba(var(--gold-rgb),.35);box-shadow:0 4px 14px rgba(0,0,0,.35);
+}
+.felt-fab svg{width:16px;height:16px;fill:currentColor}
+.felt-fab.on{background:rgba(var(--gold-rgb),.2);border-color:var(--gold-1)}
+.pop{
+  position:fixed;z-index:150;padding:10px;border-radius:16px;
+  background:var(--panel);border:1px solid rgba(var(--gold-rgb),.3);box-shadow:0 18px 44px rgba(0,0,0,.55);
+  animation:popIn .18s var(--ease) both;
+}
+@keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.97)}}
+#qTray{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:min(300px,calc(100vw - 24px))}
+.ph{
+  min-height:36px;padding:6px 10px;border-radius:12px;cursor:pointer;text-align:left;
+  font:600 13px/1.2 var(--sans);color:var(--text);background:var(--surface);border:1px solid var(--line-hi);
+}
+.ph:hover{border-color:rgba(var(--gold-rgb),.5)}
+.ph.mic{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--gold-1);border-color:rgba(var(--gold-rgb),.4)}
+.ph.mic svg,.mic-btn svg{width:16px;height:16px;fill:currentColor}
+#bubbles{position:fixed;inset:0;z-index:120;pointer-events:none}
+.bub{
+  position:fixed;translate:-50% 0;max-width:min(220px,70vw);padding:6px 11px;border-radius:12px;
+  font:600 13px/1.25 var(--sans);color:var(--gold-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  background:linear-gradient(180deg,#fff3d1,#ffd98a);box-shadow:0 6px 18px rgba(0,0,0,.45);
+  animation:bubIn .28s var(--ease) both;
+}
+.bub::before{content:"";position:absolute;top:-5px;left:calc(50% + var(--ax,0px) - 5px);width:10px;height:10px;rotate:45deg;background:#fff3d1}
+.bub.out{animation:bubOut .25s ease-in both}
+.bub[hidden]{display:none}
+@keyframes bubIn{from{opacity:0;transform:translateY(-6px) scale(.9)}}
+@keyframes bubOut{to{opacity:0;transform:translateY(-4px)}}
+.bub.voice{pointer-events:auto;padding:0;overflow:visible}
+.bub-play,.vn{
+  display:inline-flex;align-items:center;gap:6px;border:0;cursor:pointer;font:inherit;font-variant-numeric:tabular-nums;
+}
+.bub-play{padding:6px 12px;border-radius:12px;background:none;color:inherit;font-weight:700}
+.bub-play svg,.vn svg{width:14px;height:14px;fill:currentColor}
+.bub.voice .bub-play svg{animation:vnPulse 1.1s ease-in-out infinite}
+@keyframes vnPulse{50%{opacity:.35}}
+.vn{padding:2px 4px;background:none;color:inherit}
+.vn .stop,.bub-play .stop{display:none}
+.vn.on .play,.bub-play.on .play{display:none}
+.vn.on .stop,.bub-play.on .stop{display:inline}
+.msg-row.phrase .msg-bubble{font-weight:600}
+.chat form .mic-btn{background:var(--surface);color:var(--gold-1);border:1px solid rgba(var(--gold-rgb),.35)}
+.chat form .mic-btn[hidden]{display:none}
+.chat form .mic-btn svg{margin-left:0}
+#recBar{
+  position:fixed;left:50%;translate:-50% 0;bottom:max(16px,env(safe-area-inset-bottom));z-index:320;
+  display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:999px;
+  background:var(--panel);border:1px solid rgba(var(--danger-rgb),.5);box-shadow:0 14px 36px rgba(0,0,0,.6);
+  font:600 14px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--text);animation:popIn .18s var(--ease) both;
+}
+#recBar.wait .dot{background:var(--muted)}
+#recBar #recSend[disabled]{opacity:.5}
+#recBar .dot{width:10px;height:10px;border-radius:50%;background:var(--danger);animation:vnPulse 1s ease-in-out infinite}
+#recBar small{color:var(--muted);font-weight:500}
+#recBar button{width:38px;height:38px;border-radius:50%;padding:0;display:grid;place-items:center;cursor:pointer;border:1px solid var(--line-hi);background:var(--surface);color:var(--text)}
+#recBar button svg{width:17px;height:17px;fill:currentColor}
+#recBar #recSend{background:var(--gold-btn);color:var(--gold-ink);border:0}
+#setPop{width:min(260px,calc(100vw - 24px))}
+.pop-title{margin:2px 4px 8px;font:700 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.felts{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.felt{
+  display:flex;align-items:center;gap:8px;min-height:38px;padding:6px 8px;border-radius:12px;cursor:pointer;
+  font:600 12.5px/1.15 var(--sans);color:var(--text-2);text-align:left;background:var(--surface);border:1px solid var(--line-hi);
+}
+.felt i{flex:none;width:18px;height:18px;border-radius:50%;background:var(--c);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+.felt.on{border-color:var(--gold-1);color:var(--gold-1);background:rgba(var(--gold-rgb),.12)}
+.pop-row{
+  display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:10px;min-height:40px;padding:6px 8px;border-radius:12px;cursor:pointer;
+  font:600 13px/1 var(--sans);color:var(--text);background:var(--surface);border:1px solid var(--line-hi);
+}
+.sw{position:relative;width:36px;height:20px;border-radius:999px;background:rgba(255,255,255,.18);transition:background .15s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:translate .15s var(--ease)}
+.sw.on{background:var(--ok)}
+.sw.on::after{translate:16px 0}
+
 /* ================= RESULTS CARDS (round results + final results) ================= */
 /* Calm and flat: a winner summary, one ranked list, then actions. Numbers right-aligned, one line per row. */
 .sc{
@@ -535,7 +625,7 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   padding:clamp(16px,2.6dvh,22px) clamp(14px,3vw,20px) clamp(14px,2.2dvh,18px);
   border-radius:24px;border:1px solid transparent;
   background:
-    linear-gradient(180deg,#152f25 0%,#0f221b 55%,#0b1813 100%) padding-box,
+    linear-gradient(180deg,var(--sc-1) 0%,var(--sc-2) 55%,var(--sc-3) 100%) padding-box,
     linear-gradient(180deg,rgba(255,226,160,.42) 0%,rgba(255,255,255,.07) 38%,rgba(255,255,255,.05) 100%) border-box;
   box-shadow:0 30px 80px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,240,200,.1);
 }
@@ -686,10 +776,10 @@ body.round-over .chat-backdrop{z-index:255}
 /* ambient background */
 .lp-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
   background:
-    radial-gradient(1100px 680px at 50% -12%,rgba(46,125,92,.55) 0%,transparent 62%),
+    radial-gradient(1100px 680px at 50% -12%,var(--glow) 0%,transparent 62%),
     radial-gradient(760px 520px at 102% 104%,rgba(var(--gold-rgb),.16) 0%,transparent 60%),
     radial-gradient(640px 480px at -6% 96%,rgba(200,62,59,.12) 0%,transparent 60%),
-    linear-gradient(180deg,#0f1c17 0%,#09110e 100%);
+    linear-gradient(180deg,var(--bg-1) 0%,var(--bg-2) 100%);
 }
 .lp-bg::before{ /* felt grain */
   content:"";position:absolute;inset:0;opacity:.22;mix-blend-mode:overlay;
@@ -1121,6 +1211,15 @@ body.round-over .chat-backdrop{z-index:255}
   .icon-btn .lbl{display:none}
   .icon-btn{padding:0 8px}
 }
+/* phones: the brand keeps its mark but drops the word, so the room code and round never slide under the buttons */
+@media(max-width:440px){
+  .topbar .brand-mini span{display:none}
+  .topbar-left{overflow:hidden}
+}
+@media(max-width:370px){
+  .topbar-left{gap:6px}.topbar-right{gap:4px}.icon-btn{padding:0 6px}
+}
+@media(max-width:340px){.topbar .round-pill{display:none}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 /* Lite: phones with few cores or little memory (or measured slow renders) skip the costliest paint effects.
    Frosted-glass blur and blended felt grain are redrawn whenever anything under them changes. */
@@ -1165,6 +1264,7 @@ html.lite .board::before,html.lite .lp-bg::before{display:none}
   </div>
   <div class="chat-msgs" id="chatMsgs" role="log" aria-live="polite"></div>
   <form id="chatForm">
+    <button id="micBtn" class="mic-btn" type="button" aria-label="Record a voice note"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></button>
     <input id="chatIn" maxlength="160" placeholder="Write a message…" autocomplete="off" aria-label="Message">
     <button class="btn" type="submit" aria-label="Send message"><svg viewBox="0 0 24 24"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
   </form>
@@ -1238,6 +1338,19 @@ function setStore(k,v){
 }
 
 let audioCtx=null,muted=getStore('sevensMute')==='1';
+// Table felt (per phone) and haptics. iPhones ignore web vibration, so buzz() is Android-only in practice.
+const FELTS=[['green','Classic green','#1f5640','#0a1310'],['blue','Midnight blue','#24406b','#0a0f18'],['wine','Burgundy','#5e2131','#130a0d'],['charcoal','Charcoal','#3a3e41','#0e0f10']];
+let felt=getStore('sevensFelt');if(!FELTS.some(f=>f[0]===felt))felt='green';
+let haptics=getStore('sevensHaptics')!=='0';
+function applyFelt(){
+  document.documentElement.dataset.felt=felt;
+  const m=document.querySelector('meta[name="theme-color"]'),f=FELTS.find(x=>x[0]===felt);if(m&&f)m.content=f[3];
+}
+applyFelt();
+function buzz(pattern){
+  if(!haptics||document.hidden||!navigator.vibrate)return;
+  try{navigator.vibrate(pattern)}catch(e){}
+}
 function sfx(kind){
   if(muted)return;
   try{
@@ -1306,7 +1419,7 @@ function legacyCopy(txt){
   return ok;
 }
 function copyText(txt,onOk){
-  const done=()=>{toast('Invite link copied');try{if(navigator.vibrate)navigator.vibrate(12)}catch(e){}if(onOk)onOk()};
+  const done=()=>{toast('Invite link copied');buzz(12);if(onOk)onOk()};
   const failed=()=>{
     if(navigator.share)navigator.share({title:'Join my Sevens table',url:txt}).catch(()=>{});
     else toast('Could not copy — press and hold the link to copy it');
@@ -1530,7 +1643,7 @@ function applyIncomingState(nextG){
   // someone's connection flickered (phones do this constantly) but the game didn't change: repaint just the strip
   const core=coreSig(G);
   if(lastSig&&core===lastCore&&G.phase==='playing'&&app.classList.contains('t')){
-    lastSig=sig;const pl=app.querySelector('.players');if(pl)pl.innerHTML=stripHTML();paintChat();return;
+    lastSig=sig;const pl=app.querySelector('.players');if(pl)pl.innerHTML=stripHTML();paintChat();placeBubbles();return;
   }
   lastSig=sig;lastCore=core;
   requestRender();
@@ -1554,7 +1667,14 @@ function noteRenderTime(ms){
 }
 // Cards are played when the finger lifts on the card it touched, not on the click that follows: a phone
 // delivers that click 100-350ms later, which made every move feel sluggish.
-let downCard=null,tapAt=0;
+let downCard=null,tapAt=0,swallowUntil=0;
+addEventListener('pointerdown',e=>{
+  if(!document.querySelector('#qTray,#setPop'))return;
+  if(e.target.closest&&e.target.closest('#qTray,#setPop,#qBtn,#setBtn'))return;
+  closePops();swallowUntil=Date.now()+700;downCard=null;
+  e.stopImmediatePropagation();e.preventDefault();
+},{capture:true});
+addEventListener('keydown',e=>{if(e.key==='Escape'){closePops();if(rec)stopRec(false)}});
 const cardAt=e=>{const c=e.target.closest&&e.target.closest('.hl [data-c]');return c?{id:+c.dataset.c,el:c}:null};
 addEventListener('pointerdown',e=>{
   if(e.target.closest&&e.target.closest('.hand'))pressAt=Date.now();
@@ -1678,7 +1798,7 @@ setInterval(()=>{
   if(T&&!practiceMode&&es&&es.readyState===1&&Date.now()-lastActive<30*60000)fetch('/health',{cache:'no-store'}).catch(()=>{});
 },5*60000);
 function forgetSeat(){
-  settle();
+  settle();stopRec(false);stopClip();closePops();clearBubbles();
   T='';setStore('sevensT',null);G=null;lastSig='';
   render();
 }
@@ -1721,9 +1841,9 @@ function tap(id,el){
     if(el&&!calm())el.animate([{transform:'none'},{transform:'translateX(-5px)'},{transform:'translateX(5px)'},{transform:'translateX(-3px)'},{transform:'none'}],{duration:260});
     return toast(G&&G.turn===G.you?(G.legal.length?'That card can\u2019t be played yet':'No card to play. Tap Pass.'):'Wait for your turn');
   }
-  if(practiceMode)return api({a:'play',id}); // practice runs locally: already instant
+  if(practiceMode){buzz(10);return api({a:'play',id})} // practice runs locally: already instant
   if(pred)return; // one move in flight: a second tap would only come back as an error
-  sendMove('play',id);
+  buzz(10);sendMove('play',id);
 }
 
 // ---------- optimistic moves ----------
@@ -2056,6 +2176,16 @@ document.addEventListener('input',e=>{
 });
 
 document.addEventListener('click',async e=>{
+  if(Date.now()<swallowUntil)return; // this tap only closed a popover
+  const vn=e.target.closest('[data-vid]');if(vn)return playClip(vn.dataset.vid);
+  if(e.target.closest('#qBtn'))return toggleTray();
+  const ph=e.target.closest('[data-ph]');if(ph)return sendPhrase(+ph.dataset.ph);
+  if(e.target.closest('#trayMic')||e.target.closest('#micBtn'))return startRec();
+  if(e.target.closest('#recCancel'))return stopRec(false);
+  if(e.target.closest('#recSend'))return stopRec(true);
+  if(e.target.closest('#setBtn'))return toggleSettings();
+  const fp=e.target.closest('[data-felt-pick]');if(fp)return pickFelt(fp.dataset.feltPick);
+  if(e.target.closest('#hapBtn'))return toggleHaptics();
   if(e.target.closest('#go'))return join();
   if(e.target.closest('#soloBtn')){
     const nmEl=document.getElementById('nm');
@@ -2073,7 +2203,7 @@ document.addEventListener('click',async e=>{
     copyText(url,markCopied);return;
   }
   if(e.target.closest('#soundBtn')){
-    muted=!muted;setStore('sevensMute',muted?'1':'0');
+    muted=!muted;setStore('sevensMute',muted?'1':'0');if(muted)stopClip();
     toast(muted?'Sound muted':'Sound enabled');
     renderTopbarState();return;
   }
@@ -2133,8 +2263,9 @@ function paintChat(){
   const sig=G.room+'|'+myName+'|'+msgs.length+'|'+lastId,changed=sig!==chatSig;
   // reading scroll sizes forces a layout of the whole page, so only do it when the open chat gets new messages
   const stick=chatOpen&&changed&&box.scrollHeight-box.scrollTop-box.clientHeight<48;
+  let fresh=Infinity;
   if(changed){
-    const fresh=chatSig.startsWith(G.room+'|')?chatTop:Infinity; // no entrance on the first paint
+    fresh=chatSig.startsWith(G.room+'|')?chatTop:Infinity; // no entrance on the first paint
     chatSig=sig;chatTop=lastId;
     let prev=null;
     box.innerHTML=msgs.map(m=>{
@@ -2145,11 +2276,14 @@ function paintChat(){
       }
       const mine=m.name===myName,cont=prev===m.name?' cont':'';
       prev=m.name;
-      return `<div class="msg-row ${mine?'mine':'other'}${cont}${isNew}"><span class="msg-meta">${mine?'You':esc(m.name)}</span><div class="msg-bubble">${esc(m.text)}</div></div>`;
+      const body=m.kind==='voice'&&m.vid?vnButton(m,'vn'):esc(m.text);
+      return `<div class="msg-row ${mine?'mine':'other'}${cont}${isNew}${m.kind==='phrase'?' phrase':''}"><span class="msg-meta">${mine?'You':esc(m.name)}</span><div class="msg-bubble">${body}</div></div>`;
     }).join('')||'<div class="chat-empty"><b>Quiet table</b>Say hello — everyone seated here can read it.</div>';
   }
 
   if(chatOpen){seenChat=lastId;if(stick)box.scrollTop=box.scrollHeight}
+  if(fresh!==Infinity)bubbleNew(msgs.filter(m=>m.id>fresh));
+  const mic=document.getElementById('micBtn');if(mic)mic.hidden=practiceMode;
   const unread=msgs.filter(m=>m.id>seenChat).length;
   const bd=document.getElementById('chatBadge'),cb=document.getElementById('chatBtn');
   if(cb)cb.classList.toggle('active',chatOpen);
@@ -2238,6 +2372,7 @@ function topbarHTML(){
       ${G.round?`<span class="round-pill">Round ${G.round}</span>`:''}
     </div>
     <div class="topbar-right">
+      <button id="setBtn" class="icon-btn" type="button" aria-label="Table settings" aria-haspopup="true"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg></button>
       <button id="soundBtn" class="icon-btn" type="button" aria-label="Toggle sound"></button>
       <button id="chatBtn" class="icon-btn ${chatOpen?'active':''}" type="button" aria-label="Chat">
         <svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>
@@ -2620,7 +2755,7 @@ function stripHTML(){
   return aside+G.players.map(q=>{
     const st=q.spec?'next round':q.bot?(practiceMode?'':'bot playing'):!q.on?'reconnecting…':'';
     const cards=q.spec?'':`<span class="pl-cards${q.n<=3?' low':''}" aria-label="${q.n} card${q.n===1?'':'s'} left"><i></i>${q.n}</span>`;
-    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}" style="--h:${nameHue(q.name)}">
+    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}" data-pid="${q.id}" style="--h:${nameHue(q.name)}">
       <span class="pl-av" aria-hidden="true">${esc((String(q.name).trim()[0]||'?').toUpperCase())}<span class="pl-dot"></span></span>
       <span class="pl-name">${esc(q.name)}${q.id===G.you?' (you)':''}</span>
       ${st?`<span class="pl-meta">${st}</span>`:''}${cards}
@@ -2645,10 +2780,10 @@ function table(){
 
   const chips=stripHTML();
   const [msg,cls]=banner(),mine=G.turn===G.you;
-  if(mine&&!wasMyTurn){sfx('turn');if(navigator.vibrate)navigator.vibrate(40)}
+  if(mine&&!wasMyTurn){sfx('turn');buzz(40)}
   wasMyTurn=mine;
   const freshOver=G.phase==='over'&&wasPhase!=='over';
-  if(freshOver)sfx('loser');
+  if(freshOver){sfx('loser');buzz([30,60,30])}
   const freshInvalid=G.phase==='invalid'&&wasPhase!=='invalid';
   const freshFinal=G.phase==='final'&&wasPhase!=='final';
   if(freshFinal)sfx('loser');
@@ -2658,7 +2793,7 @@ function table(){
   <div class="workspace">
     <div class="table-col">
       <div class="players">${chips}</div>
-      <div class="board"><div class="bi ${wide?'w':''}">${board}</div></div>
+      <div class="board"><div class="bi ${wide?'w':''}">${board}</div>${G.phase==='playing'?`<button id="qBtn" class="felt-fab${document.getElementById('qTray')?' on':''}" type="button" aria-label="Quick phrases" aria-haspopup="true"><svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 6.5a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01z"/></svg></button>`:''}</div>
       <div class="banner ${cls}">
         <span id="bt">${msg}</span>${passBtn()}${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait" type="button">Skip wait</button>':''}
       </div>
@@ -2673,6 +2808,7 @@ function table(){
   if(freshOver||freshFinal)countUp(document.getElementById('over'));
   layout(wide);
   animateTable(snap);
+  placeBubbles();placeTray();
 }
 
 // Sizes every card to fit 100% within the available viewport height without any vertical scroll
@@ -2699,6 +2835,21 @@ function layout(wide){
   const handEl=app.querySelector('.hand');
   if(handEl)handEl.innerHTML=handHTML(Math.max(1,Math.ceil(n/rows)));
   fit();
+  placeFab();
+}
+// The phrase button sits on free felt: up the right edge first, then along the bottom, never on a card.
+// Reads every rect first and writes once, so it adds no layout thrash.
+function placeFab(){
+  const f=document.getElementById('qBtn'),bd=app.querySelector('.board');if(!f||!bd)return;
+  const B=bd.getBoundingClientRect(),S=f.offsetWidth||34,pad=7;
+  const occ=[...bd.querySelectorAll('.card,.lab,.slot,.suit-out:not(.spacer)')].map(e=>e.getBoundingClientRect());
+  const free=(x,y)=>!occ.some(r=>x<r.right+2&&x+S>r.left-2&&y<r.bottom+2&&y+S>r.top-2);
+  let spot=null;
+  for(let y=B.bottom-pad-S;!spot&&y>=B.top+pad;y-=6)if(free(B.right-pad-S,y))spot=[B.right-pad-S,y];
+  for(let x=B.right-pad-S-6;!spot&&x>=B.left+pad;x-=6)if(free(x,B.bottom-pad-S))spot=[x,B.bottom-pad-S];
+  f.style.visibility=spot?'':'hidden'; // a completely full felt (rare, late in a round): never cover a card
+  if(!spot)return;
+  f.style.left=Math.round(spot[0]-B.left-1)+'px';f.style.top=Math.round(spot[1]-B.top-1)+'px';
 }
 
 // Reads every row's size first, then positions the cards: interleaving the two forced a full layout per row,
@@ -2739,6 +2890,206 @@ function announceSetAside(){
 }
 // A phone in a pocket can't tap Pass: when it's our turn, nothing is playable and the page is hidden,
 // pass straight away rather than make the whole table wait out the countdown.
+// ---------- table extras: quick phrases, seat bubbles, voice notes, settings ----------
+// Phrases go by index (the server has the same list), so they can never carry other text.
+const PHRASES=['Nice one!','Hurry up \u{1F634}','Ouch \u{1F62C}','Who\u2019s holding the 6?','Sorry!','Good game \u{1F44F}','Lucky! \u{1F340}','Hmm\u2026 \u{1F914}'];
+const MIC_SVG='<svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
+const PLAY_ICONS='<svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>';
+let resumedAt=0,phraseAt=0,othersBuzzAt=0;
+
+// Seat bubbles: a short-lived note under the sender's chip. They live in their own layer, outside #app,
+// so the table re-rendering (every move) never wipes them; placeBubbles() re-anchors them after each paint.
+const bubbles=new Map(); // player id -> {el,timer}
+function bubbleLayer(){let l=document.getElementById('bubbles');if(!l){l=document.createElement('div');l.id='bubbles';document.body.appendChild(l)}return l}
+function bubblesOn(){return !!G&&G.phase==='playing'&&app.classList.contains('t')}
+function showBubble(pid,html,ms,cls){
+  if(!bubblesOn())return;
+  const old=bubbles.get(pid);if(old){clearTimeout(old.timer);old.el.remove()}
+  const el=document.createElement('div');el.className='bub '+(cls||'');el.innerHTML=html;bubbleLayer().appendChild(el);
+  bubbles.set(pid,{el,timer:setTimeout(()=>dropBubble(pid,el),ms)});
+  placeBubbles();
+}
+function dropBubble(pid,el){
+  const b=bubbles.get(pid);if(!b||b.el!==el)return;
+  bubbles.delete(pid);el.classList.add('out');setTimeout(()=>el.remove(),260);
+}
+function clearBubbles(){for(const b of bubbles.values()){clearTimeout(b.timer);b.el.remove()}bubbles.clear()}
+function placeBubbles(){
+  if(!bubbles.size)return;
+  if(!bubblesOn())return clearBubbles();
+  for(const [pid,b] of bubbles){
+    const chip=app.querySelector('.players .pl[data-pid="'+pid+'"]'),r=chip&&chip.getBoundingClientRect();
+    if(!r||!r.width||r.bottom<0||r.top>innerHeight){b.el.hidden=true;continue}
+    b.el.hidden=false;
+    const w=b.el.offsetWidth,mid=r.left+r.width/2,x=Math.max(8+w/2,Math.min(innerWidth-8-w/2,mid));
+    b.el.style.left=x+'px';b.el.style.top=(r.bottom+7)+'px';b.el.style.setProperty('--ax',(mid-x)+'px');
+  }
+}
+function vnButton(m,cls){
+  const d=Math.max(1,Math.round(+m.dur||0));
+  return `<button type="button" class="${cls}${clipAudio&&clipVid===m.vid?' on':''}" data-vid="${esc(m.vid)}" aria-label="Play voice note from ${esc(m.name)}, ${d} seconds">${PLAY_ICONS}<span>${d}s</span></button>`;
+}
+// called by paintChat with the messages that arrived since the last paint
+function bubbleNew(list){
+  if(Date.now()-resumedAt<2500)return; // a backlog after the screen was off: it's in chat already
+  for(const m of list){
+    if(m.sys||m.pid==null||(m.kind!=='phrase'&&m.kind!=='voice'))continue;
+    if(m.kind==='phrase'&&m.pid===G.you)continue; // already shown the moment it was tapped
+    if(m.kind==='voice')showBubble(m.pid,vnButton(m,'bub-play'),6500,'voice');
+    else showBubble(m.pid,esc(m.text),3500,'');
+    if(m.pid!==G.you&&Date.now()-othersBuzzAt>2000){othersBuzzAt=Date.now();buzz(15)}
+  }
+}
+
+// the phrase tray, opened from the button on the felt
+function toggleTray(){if(document.getElementById('qTray'))return closePops();openTray()}
+function openTray(){
+  closePops();if(!G)return;
+  const t=document.createElement('div');t.id='qTray';t.className='pop';t.setAttribute('role','menu');t.setAttribute('aria-label','Quick phrases');
+  t.innerHTML=PHRASES.map((p,i)=>`<button type="button" class="ph" role="menuitem" data-ph="${i}">${esc(p)}</button>`).join('')
+    +(practiceMode?'':`<button type="button" class="ph mic" id="trayMic" role="menuitem">${MIC_SVG}Voice note</button>`);
+  document.body.appendChild(t);placeTray();
+  const b=document.getElementById('qBtn');if(b)b.classList.add('on');
+}
+function placeTray(){
+  const t=document.getElementById('qTray');if(!t)return;
+  const b=document.getElementById('qBtn');
+  if(!b||!G||G.phase!=='playing'){t.remove();return} // the round ended under it
+  const r=b.getBoundingClientRect();
+  t.style.right=Math.max(12,Math.min(innerWidth-r.right,innerWidth-12-t.offsetWidth))+'px';t.style.bottom=Math.max(12,innerHeight-r.top+8)+'px';
+}
+function closeSettings(){const p=document.getElementById('setPop');if(p)p.remove()}
+function closePops(){
+  const t=document.getElementById('qTray');if(t)t.remove();
+  const b=document.getElementById('qBtn');if(b)b.classList.remove('on');
+  closeSettings();
+}
+function sendPhrase(i){
+  closePops();
+  if(!G||!(i>=0&&i<PHRASES.length))return;
+  if(Date.now()-phraseAt<2000)return toast('Wait a moment before sending again');
+  phraseAt=Date.now();
+  showBubble(G.you,esc(PHRASES[i]),3500,'');
+  if(practiceMode){
+    P_STATE.chat.push({id:++P_STATE.chatSeq,name:P_STATE.players[0].name,text:PHRASES[i],sys:false,kind:'phrase',pid:1});
+    return syncPracticeView();
+  }
+  api({a:'chat',phrase:i}).then(r=>{if(r&&r.err)toast(r.err==='offline'?'You\u2019re offline. Try again.':r.err)});
+}
+
+// Table settings: felt colour and vibration, remembered on this phone only
+function toggleSettings(){if(document.getElementById('setPop'))return closePops();openSettings()}
+function settingsHTML(){
+  return `<div class="pop-title">Table felt</div><div class="felts">${FELTS.map(([k,n,c])=>`<button type="button" class="felt${k===felt?' on':''}" data-felt-pick="${k}" aria-pressed="${k===felt}" style="--c:${c}"><i></i>${n}</button>`).join('')}</div>`
+    +(navigator.vibrate?`<button type="button" class="pop-row" id="hapBtn" role="switch" aria-checked="${haptics}">Vibration<span class="sw${haptics?' on':''}"></span></button>`:'');
+}
+function openSettings(){
+  closePops();
+  const btn=document.getElementById('setBtn');if(!btn)return;
+  const p=document.createElement('div');p.id='setPop';p.className='pop';p.setAttribute('role','dialog');p.setAttribute('aria-label','Table settings');
+  p.innerHTML=settingsHTML();document.body.appendChild(p);
+  const r=btn.getBoundingClientRect();
+  p.style.top=(r.bottom+8)+'px';p.style.right=Math.max(12,Math.min(innerWidth-r.right,innerWidth-12-p.offsetWidth))+'px';
+}
+function pickFelt(k){
+  if(!FELTS.some(f=>f[0]===k))return;
+  felt=k;setStore('sevensFelt',k);applyFelt();
+  const p=document.getElementById('setPop');if(p)p.innerHTML=settingsHTML();
+}
+function toggleHaptics(){
+  haptics=!haptics;setStore('sevensHaptics',haptics?'1':'0');
+  if(haptics)buzz(20);
+  const p=document.getElementById('setPop');if(p)p.innerHTML=settingsHTML();
+}
+
+// Voice notes: tap to record, tap to send (a held press would be swallowed by the first microphone prompt).
+// Clips upload once to /voice; everyone else fetches one only when they tap play.
+const REC_MAX=8000,REC_MIN=500;
+let rec=null; // {starting} while the mic is being opened, then {mr,stream,chunks,t0,type,timer,send,dur}
+function recType(){
+  if(!window.MediaRecorder||!MediaRecorder.isTypeSupported)return '';
+  return ['audio/mp4;codecs=mp4a.40.2','audio/mp4','audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus'].find(t=>{try{return MediaRecorder.isTypeSupported(t)}catch(e){return false}})||'';
+}
+async function startRec(){
+  closePops();
+  if(rec||practiceMode||!T)return;
+  const type=recType();
+  if(!type||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return toast('Voice notes don\u2019t work in this browser');
+  const r={starting:true};rec=r;
+  let stream;
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}})}
+  catch(e){if(rec===r)rec=null;return toast(e&&(e.name==='NotAllowedError'||e.name==='SecurityError')?'Allow the microphone to send voice notes':'Couldn\u2019t use the microphone')}
+  if(rec!==r||document.hidden||!T){stream.getTracks().forEach(t=>t.stop());if(rec===r)rec=null;return} // cancelled while the prompt was up
+  let mr;
+  try{mr=new MediaRecorder(stream,{mimeType:type,audioBitsPerSecond:24000})}
+  catch(e){stream.getTracks().forEach(t=>t.stop());rec=null;return toast('Voice notes don\u2019t work in this browser')}
+  // some phones take most of a second to start their encoder: the bar says "Starting…" until the recorder
+  // reports it is live, and the 8s clock and the clip's length count from then
+  Object.assign(r,{starting:false,live:false,mr,stream,chunks:[],t0:performance.now(),type:type.split(';')[0],send:false,dur:0});
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)r.chunks.push(e.data)};
+  mr.onstart=()=>{if(!r.live&&!r.stopping){r.live=true;r.t0=performance.now();paintRecBar(0)}};
+  mr.onstop=()=>finishRec(r);
+  mr.onerror=()=>{r.send=false;try{mr.stop()}catch(e){finishRec(r)}};
+  mr.start(1000);
+  r.timer=setInterval(()=>{if(!r.live)return;const ms=performance.now()-r.t0;if(ms>=REC_MAX)stopRec(true);else paintRecBar(ms)},200);
+  paintRecBar(-1);
+}
+function paintRecBar(ms){
+  let b=document.getElementById('recBar');
+  if(!b){
+    b=document.createElement('div');b.id='recBar';b.setAttribute('role','status');
+    b.innerHTML=`<span class="dot"></span><span id="recTime">0:00</span><small>/ 0:08</small><button id="recCancel" type="button" aria-label="Cancel voice note"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button><button id="recSend" type="button" aria-label="Send voice note"><svg viewBox="0 0 24 24"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>`;
+    document.body.appendChild(b);
+  }
+  const t=document.getElementById('recTime');if(t)t.textContent=ms<0?'Starting…':'0:0'+Math.min(8,Math.floor(ms/1000));
+  b.classList.toggle('wait',ms<0);
+}
+function stopRec(send){
+  const r=rec;if(!r)return;
+  if(r.starting){rec=null;return} // the mic prompt is still up: startRec() drops the stream when it resolves
+  if(r.stopping)return;
+  r.stopping=true;r.send=!!send;r.dur=r.live?Math.min(REC_MAX,performance.now()-r.t0):0;
+  if(send&&!r.live)toast('The microphone was still starting. Try again.');
+  clearInterval(r.timer);
+  const b=document.getElementById('recBar');if(b)b.remove();
+  try{if(r.mr.state!=='inactive')r.mr.stop();else finishRec(r)}catch(e){finishRec(r)}
+}
+function finishRec(r){
+  if(r.finished)return;r.finished=true;
+  clearInterval(r.timer);
+  try{r.stream.getTracks().forEach(t=>t.stop())}catch(e){} // the phone's mic indicator goes off at once
+  if(rec===r)rec=null;
+  const b=document.getElementById('recBar');if(b&&!rec)b.remove();
+  if(!r.stopping)r.dur=r.live?Math.min(REC_MAX,performance.now()-r.t0):0;
+  if(!r.send||r.dur<REC_MIN||!T)return;
+  if(!r.chunks.length)return toast('Nothing was recorded. Try again.');
+  const blob=new Blob(r.chunks,{type:r.type});
+  fetch('/voice?t='+encodeURIComponent(T)+'&d='+Math.round(r.dur),{method:'POST',headers:{'Content-Type':r.type},body:blob})
+    .then(x=>x.json()).then(o=>{if(o&&o.err)toast(o.err)})
+    .catch(()=>toast('You\u2019re offline. The voice note wasn\u2019t sent.'));
+}
+
+// one clip plays at a time; tapping the playing one stops it
+let clipAudio=null,clipVid='';
+function setClipUI(){document.querySelectorAll('[data-vid]').forEach(b=>b.classList.toggle('on',!!clipAudio&&b.dataset.vid===clipVid))}
+function stopClip(){
+  const a=clipAudio;clipAudio=null;clipVid='';
+  if(a){a.onended=a.onerror=null;try{a.pause()}catch(e){}}
+  setClipUI();
+}
+function playClip(vid){
+  if(clipAudio&&clipVid===vid)return stopClip();
+  stopClip();
+  if(muted)return toast('Sound is off. Tap the speaker to hear voice notes.');
+  if(practiceMode||!T)return;
+  const a=new Audio('/voice/'+encodeURIComponent(vid)+'?t='+encodeURIComponent(T));
+  clipAudio=a;clipVid=vid;setClipUI();
+  a.onended=()=>{if(clipAudio===a)stopClip()};
+  a.onerror=()=>{if(clipAudio===a){stopClip();toast('This voice note has expired')}};
+  const pr=a.play();
+  if(pr&&pr.catch)pr.catch(e=>{if(clipAudio===a&&!(e&&e.name==='AbortError')){stopClip();toast('Couldn\u2019t play this voice note')}});
+}
+
 let awayPassKey='';
 function passIfAway(){
   if(!G||practiceMode||!document.hidden||G.phase!=='playing'||G.turn!==G.you||(G.legal||[]).length)return;
@@ -2747,12 +3098,13 @@ function passIfAway(){
   awayPassKey=k;if(!pred)sendMove('pass');
 }
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState!=='visible')return passIfAway();
+  if(document.visibilityState!=='visible'){stopRec(false);return passIfAway()}
+  resumedAt=Date.now(); // messages that arrived while the screen was off go to chat, not to seat bubbles
   if(T&&!practiceMode&&(!es||es.readyState!==1))connect();
   keepAwake();
 });
 addEventListener('resize',()=>{
-  paintChat();
+  paintChat();placeBubbles();placeTray();closeSettings();
   if(!G||G.phase==='lobby'||document.activeElement?.id==='chatIn')return;
   cancelAnimationFrame(rafId);
   rafId=requestAnimationFrame(()=>layout(innerWidth/innerHeight>1.25));

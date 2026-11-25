@@ -28,6 +28,14 @@ const TURN_WAIT = +process.env.TURN_WAIT_MS || 10000;
 // requests per 10s: per seat (token) for game actions, and per address as a flood guard
 const SEAT_MAX = 60, IP_FLOOD_MAX = 300;
 const BODY_MAX = 2000, SSE_PER_TOKEN = 6, SSE_MAX_BUFFER = 256 * 1024, RATE_KEYS_MAX = 20000;
+// One-tap phrases. Sent by index, so a "phrase" can never carry arbitrary text. index.html has the same list.
+const PHRASES = ['Nice one!', 'Hurry up \u{1F634}', 'Ouch \u{1F62C}', 'Who’s holding the 6?', 'Sorry!', 'Good game \u{1F44F}', 'Lucky! \u{1F340}', 'Hmm… \u{1F914}'];
+const PHRASE_GAP = 2000;
+// Voice notes: short clips uploaded once, kept in memory per table, fetched by players only when they tap play.
+const VOICE_MAX_BYTES = 160 * 1024, VOICE_MIN_MS = 500, VOICE_MAX_MS = 8500, VOICE_PER_TABLE = 15, VOICE_GAP = 3000, VOICE_PER_MIN = 10;
+const VOICE_TTL = +env('VOICE_TTL_MS', 600000), VOICE_TOTAL_MAX = +env('VOICE_TOTAL_MAX', 32 * 1024 * 1024);
+const VOICE_TYPES = ['audio/mp4', 'audio/webm', 'audio/ogg', 'audio/aac', 'audio/mpeg'];
+let voiceTotal = 0, voiceSeq = 0;
 
 // index.html is immutable for the life of the process: compress once, serve with an ETag.
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'));
@@ -44,7 +52,7 @@ const SEC_HEADERS = {
   'X-Frame-Options': 'DENY',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()',
   'Content-Security-Policy': "default-src 'self'; script-src 'self' " + (SCRIPT_HASHES.length ? SCRIPT_HASHES.join(' ') : "'unsafe-inline'")
     + "; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 };
@@ -116,7 +124,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [], joins: [] };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [], joins: [], voices: [] };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -291,9 +299,101 @@ function doPass(S, p) {
 }
 
 function addLog(S, t) { S.log.push(t); if (S.log.length > 30) S.log.shift(); }
-function addChat(S, name, text, sys, kind = '') {
-  S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys, kind });
+// extra: the sender's player id (pid) for player messages, and a voice note's vid/dur
+function addChat(S, name, text, sys, kind = '', extra) {
+  S.chat.push({ id: ++S.chatSeq, name: name || '', text, sys: !!sys, kind, ...extra });
   if (S.chat.length > 80) S.chat.splice(0, S.chat.length - 80);
+}
+
+// ---- voice notes: an in-memory clip store per table, with a global byte budget ----
+function dropClip(S, i) {
+  const [c] = S.voices.splice(i, 1);
+  if (c) voiceTotal -= c.buf.length;
+}
+function expireClips(S, now = Date.now()) {
+  if (!S.voices) return;
+  for (let i = S.voices.length - 1; i >= 0; i--) if (now - S.voices[i].at > VOICE_TTL) dropClip(S, i);
+}
+function sweepClips() {
+  const now = Date.now();
+  for (const S of rooms.values()) expireClips(S, now);
+}
+// make room for `bytes` more: the oldest clip anywhere goes first
+function fitClipBudget(bytes) {
+  while (voiceTotal + bytes > VOICE_TOTAL_MAX) {
+    let oldS = null, oldAt = Infinity;
+    for (const S of rooms.values()) if (S.voices && S.voices.length && S.voices[0].at < oldAt) { oldAt = S.voices[0].at; oldS = S; }
+    if (!oldS) return;
+    dropClip(oldS, 0);
+  }
+}
+// the first bytes must match the declared container, so nothing else can be served back as audio
+function clipMagicOk(type, b) {
+  if (b.length < 12) return false;
+  if (type === 'audio/webm') return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
+  if (type === 'audio/mp4') return b.toString('latin1', 4, 8) === 'ftyp';
+  if (type === 'audio/ogg') return b.toString('latin1', 0, 4) === 'OggS';
+  if (type === 'audio/aac') return b[0] === 0xff && (b[1] & 0xf6) === 0xf0;
+  if (type === 'audio/mpeg') return b.toString('latin1', 0, 3) === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0);
+  return false;
+}
+function voiceUpload(req, res, u) {
+  const rec = byToken.get(u.searchParams.get('t') || '');
+  if (!rec) return json(res, 404, { err: 'Not joined' });
+  const { S, p } = rec;
+  const type = String(req.headers['content-type'] || '').toLowerCase().split(';')[0].trim();
+  if (!VOICE_TYPES.includes(type)) return json(res, 415, { err: 'This recording format isn’t supported' });
+  const ms = Math.round(+u.searchParams.get('d'));
+  if (!(ms >= VOICE_MIN_MS && ms <= VOICE_MAX_MS)) return json(res, 400, { err: 'Voice notes are 0.5 to 8 seconds' });
+  if (+req.headers['content-length'] > VOICE_MAX_BYTES) { res.setHeader('Connection', 'close'); return json(res, 413, { err: 'That voice note is too long' }); }
+  const now = Date.now();
+  if ((p.voiceAt && now - p.voiceAt < VOICE_GAP) || !hit('voice:' + p.t, VOICE_PER_MIN, 60000)) {
+    res.setHeader('Retry-After', '3'); return json(res, 429, { err: 'Wait a moment before sending another voice note' });
+  }
+  p.voiceAt = now; // claimed at the start, so two uploads at once can't both slip through
+  const parts = []; let size = 0, aborted = false;
+  req.on('error', () => { aborted = true; });
+  req.on('data', c => {
+    if (aborted) return;
+    size += c.length;
+    if (size > VOICE_MAX_BYTES) { aborted = true; res.setHeader('Connection', 'close'); json(res, 413, { err: 'That voice note is too long' }); req.destroy(); return; }
+    parts.push(c);
+  });
+  req.on('end', () => {
+    if (aborted) return;
+    const buf = Buffer.concat(parts);
+    if (!clipMagicOk(type, buf)) return json(res, 415, { err: 'This recording format isn’t supported' });
+    if (buf.length > VOICE_TOTAL_MAX) return json(res, 413, { err: 'That voice note is too long' });
+    if (byToken.get(p.t) !== rec || rooms.get(S.code) !== S) return json(res, 404, { err: 'Not joined' });
+    expireClips(S);
+    while (S.voices.length >= VOICE_PER_TABLE) dropClip(S, 0);
+    fitClipBudget(buf.length);
+    const vid = (++voiceSeq).toString(36) + crypto.randomBytes(6).toString('hex');
+    S.voices.push({ vid, buf, type, at: Date.now(), pid: p.id });
+    voiceTotal += buf.length;
+    addChat(S, p.name, '\u{1F3A4} voice note', false, 'voice', { pid: p.id, vid, dur: Math.round(ms / 100) / 10 });
+    push(S);
+    json(res, 200, { ok: true, vid });
+  });
+}
+function voiceGet(req, res, u, vid) {
+  const rec = byToken.get(u.searchParams.get('t') || '');
+  const S = rec && rec.S;
+  if (S) expireClips(S);
+  const c = S && S.voices.find(x => x.vid === vid);
+  if (!c) { res.writeHead(404, { ...SEC_HEADERS, 'Cache-Control': 'no-store' }); return res.end(); }
+  const head = { ...SEC_HEADERS, 'Content-Type': c.type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=600' };
+  // Safari only plays media from servers that answer byte-range requests
+  const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || '').trim());
+  let body = c.buf;
+  if (m && (m[1] || m[2])) {
+    const len = c.buf.length;
+    let a = m[1] ? +m[1] : Math.max(0, len - +m[2]), b = m[1] && m[2] ? Math.min(+m[2], len - 1) : len - 1;
+    if (a >= len || a > b) { res.writeHead(416, { ...head, 'Content-Range': 'bytes */' + len }); return res.end(); }
+    body = c.buf.subarray(a, b + 1);
+    res.writeHead(206, { ...head, 'Content-Range': 'bytes ' + a + '-' + b + '/' + len, 'Content-Length': body.length });
+  } else res.writeHead(200, { ...head, 'Content-Length': body.length });
+  res.end(req.method === 'HEAD' ? undefined : body);
 }
 function notify(S, msg, kind = '') {
   addChat(S, '', msg, true, kind);
@@ -690,6 +790,7 @@ function forgetPlayer(S, p) {
 function dropRoom(S) {
   clearTimeout(S.timer); clearTimeout(S.idle);
   for (const p of [...S.players]) forgetPlayer(S, p);
+  while (S.voices && S.voices.length) dropClip(S, 0);
   rooms.delete(S.code);
 }
 
@@ -883,12 +984,19 @@ function act(b, ip) {
     return {};
   }
   if (b.a === 'chat') {
+    const now = Date.now();
+    if (b.phrase !== undefined) {
+      const i = b.phrase;
+      if (!Number.isInteger(i) || i < 0 || i >= PHRASES.length) return { err: 'Unknown phrase', state: view(S, p) };
+      if ((p.phraseAt && now - p.phraseAt < PHRASE_GAP) || (p.chatAt && now - p.chatAt < 400)) return { err: 'Wait a moment before sending again', state: view(S, p) };
+      p.phraseAt = p.chatAt = now;
+      addChat(S, p.name, PHRASES[i], false, 'phrase', { pid: p.id }); push(S); return { state: view(S, p) };
+    }
     const text = clean(b.msg).slice(0, 160).trim();
     if (!text) return { err: 'Type a message first', state: view(S, p) };
-    const now = Date.now();
     if (p.chatAt && now - p.chatAt < 400) return { err: 'Wait a moment before sending again', state: view(S, p) };
     p.chatAt = now;
-    addChat(S, p.name, text, false); push(S); return { state: view(S, p) };
+    addChat(S, p.name, text, false, '', { pid: p.id }); push(S); return { state: view(S, p) };
   }
   return { err: 'Unknown action' };
 }
@@ -969,6 +1077,17 @@ function handle(req, res) {
     });
     return push(S);
   }
+  if (req.method === 'POST' && u.pathname === '/voice') {
+    if (!checkRate(req, IP_FLOOD_MAX, 10000)) { res.setHeader('Retry-After', '2'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
+    const origin = req.headers.origin;
+    try { if (origin && req.headers.host && new URL(origin).host !== req.headers.host) return json(res, 403, { err: 'Cross-origin request blocked' }); }
+    catch (e) { return json(res, 400, { err: 'Invalid origin' }); }
+    return voiceUpload(req, res, u);
+  }
+  if ((req.method === 'GET' || req.method === 'HEAD') && u.pathname.startsWith('/voice/')) {
+    if (!checkRate(req, IP_FLOOD_MAX, 10000)) { res.writeHead(429, { ...SEC_HEADERS, 'Retry-After': '2' }); return res.end(); }
+    return voiceGet(req, res, u, u.pathname.slice(7));
+  }
   if (req.method === 'POST' && u.pathname === '/api') {
     warnIfProxied(req);
     // per address only as a flood guard; each seat gets its own limit in act()
@@ -1034,6 +1153,7 @@ if (require.main === module) {
     for (const set of conns.values()) for (const r of set) sseWrite(r, ': hb\n\n');
     const now = Date.now();
     for (const [key, rec] of rateMap) if (now > rec.resetAt) rateMap.delete(key);
+    sweepClips();
   }, 15000);
   // If the event loop stalls (a starved CPU, a slow bot), say so in the log, at most once a minute.
   const lag = require('perf_hooks').monitorEventLoopDelay({ resolution: 20 }); lag.enable();
@@ -1055,4 +1175,4 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 }
 
-module.exports = { removedFor,  botChoose, heurChoose, evalMove, cardPts, handPts, hasFourKings, canFinishInThree, createAppServer, rooms, byToken, GRACE, INVALID_WAIT };
+module.exports = { removedFor,  botChoose, heurChoose, evalMove, cardPts, handPts, hasFourKings, canFinishInThree, createAppServer, rooms, byToken, GRACE, INVALID_WAIT, PHRASES, voiceBytes: () => voiceTotal, sweepClips };
