@@ -555,11 +555,12 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 
 /* ---------- table extras: phrase button, tray, seat bubbles, voice notes, settings ---------- */
 .felt-fab{
-  position:absolute;right:8px;bottom:8px; /* placeFab() moves it off any card */z-index:2;width:34px;height:34px;padding:0;border-radius:50%;
+  position:fixed;z-index:125; /* placeFab() pins it to the felt's bottom-right rim */width:34px;height:34px;padding:0;border-radius:50%;
   display:grid;place-items:center;cursor:pointer;color:var(--gold-1);
   background:var(--glass);border:1px solid rgba(var(--gold-rgb),.35);box-shadow:0 4px 14px rgba(0,0,0,.35);
 }
 .felt-fab svg{width:16px;height:16px;fill:currentColor}
+.felt-fab[hidden]{display:none}
 .felt-fab.on{background:rgba(var(--gold-rgb),.2);border-color:var(--gold-1)}
 .pop{
   position:fixed;z-index:150;padding:10px;border-radius:16px;
@@ -1401,12 +1402,11 @@ function setStore(k,v){
 }
 
 let audioCtx=null,muted=getStore('sevensMute')==='1';
-// Table felt (per phone) and haptics. iPhones ignore web vibration, so buzz() is Android-only in practice.
+// Table felt (per phone).
 const FELTS=[['green','Classic green','#1f5640','#0a1310'],['galaxy','Galaxy','#4b37b8','#07061a'],['neon','Neon night','#ff3fb4','#08050f'],['ocean','Ocean','#138a9c','#03141a']];
 let felt=getStore('sevensFelt');
 felt=({blue:'galaxy',wine:'neon',charcoal:'ocean'})[felt]||felt; // themes from v1.12
 if(!FELTS.some(f=>f[0]===felt))felt='green';
-let haptics=getStore('sevensHaptics')!=='0';
 // animated themes: 'on' / 'off' chosen in Table settings; unset = on unless this phone proves slow (then off for the session)
 let fxPref=getStore('sevensFx')||'';
 const fxOn=()=>!document.documentElement.classList.contains('nofx');
@@ -1457,10 +1457,6 @@ function paintBgFx(){
   l.innerHTML=felt==='green'?'':fxHTML(felt,'page');
 }
 applyFelt();
-function buzz(pattern){
-  if(!haptics||document.hidden||!navigator.vibrate)return;
-  try{navigator.vibrate(pattern)}catch(e){}
-}
 function sfx(kind){
   if(muted)return;
   try{
@@ -1529,7 +1525,7 @@ function legacyCopy(txt){
   return ok;
 }
 function copyText(txt,onOk){
-  const done=()=>{toast('Invite link copied');buzz(12);if(onOk)onOk()};
+  const done=()=>{toast('Invite link copied');if(onOk)onOk()};
   const failed=()=>{
     if(navigator.share)navigator.share({title:'Join my Sevens table',url:txt}).catch(()=>{});
     else toast('Could not copy — press and hold the link to copy it');
@@ -1901,8 +1897,10 @@ async function recoverSeat(){
   if(r&&r.t){T=r.t;setStore('sevensT',T);connect();return}
   // server asleep or restarting, or briefly rate limited: the seat is still ours, try again shortly
   if(r&&(r.err==='offline'||/Too many/.test(r.err||''))){T=old;setTimeout(recoverSeat,Math.min(10000,1000*2**recoverTries++));return}
+  // tables live in server memory, so a restart (a deploy, or a free host waking from sleep) closes them;
+  // the closed table's code must leave the address too, or the home screen keeps steering back to it
+  if(r&&r.err&&/^No table/.test(r.err))try{history.replaceState(null,'',location.pathname)}catch(e){}
   forgetSeat();
-  // tables live in server memory, so a restart (a deploy, or a free host waking from sleep) closes them
   if(r&&r.err)toast(/^No table/.test(r.err)?'That table has closed. Open a new one to keep playing.':r.err);
 }
 // Free hosts (Render) put the server to sleep after 15 minutes with no incoming requests, and the event
@@ -1931,13 +1929,16 @@ async function join(){
     return;
   }
   setStore('sevensN',n);
-  const room=((document.getElementById('rm')||{}).value||roomFromUrl()).trim();
+  // the code box decides: clearing it means "open a new table", even when the page came from an invite link
+  const rmEl=document.getElementById('rm'),room=(rmEl?rmEl.value:roomFromUrl()).trim();
   T='';
   // answer the click at once; the lobby is drawn from the reply itself (api() applies r.state)
   const go=document.getElementById('go'),lbl=document.getElementById('goLbl'),was=lbl?lbl.textContent:'';
   joining=true;
   if(go){go.disabled=true;go.classList.add('busy')}
   if(lbl)lbl.textContent=room?'Joining…':'Opening…';
+  // the address gets the joined table's code once it answers; an old one would bounce the new table away
+  if(roomFromUrl())try{history.replaceState(null,'',location.pathname)}catch(e){}
   const r=await api({a:'join',name:n,room,cid:CID});
   joining=false;
   if(r.err&&go&&go.isConnected){go.disabled=false;go.classList.remove('busy');if(lbl)lbl.textContent=was}
@@ -1956,9 +1957,9 @@ function tap(id,el){
     if(el&&!calm())el.animate([{transform:'none'},{transform:'translateX(-5px)'},{transform:'translateX(5px)'},{transform:'translateX(-3px)'},{transform:'none'}],{duration:260});
     return toast(G&&G.turn===G.you?(G.legal.length?'That card can\u2019t be played yet':'No card to play. Tap Pass.'):'Wait for your turn');
   }
-  if(practiceMode){buzz(10);return api({a:'play',id})} // practice runs locally: already instant
+  if(practiceMode)return api({a:'play',id}); // practice runs locally: already instant
   if(pred)return; // one move in flight: a second tap would only come back as an error
-  buzz(10);sendMove('play',id);
+  sendMove('play',id);
 }
 
 // ---------- optimistic moves ----------
@@ -2304,7 +2305,6 @@ document.addEventListener('click',async e=>{
   if(e.target.closest('#recSend'))return stopRec(true);
   if(e.target.closest('#setBtn'))return toggleSettings();
   const fp=e.target.closest('[data-felt-pick]');if(fp)return pickFelt(fp.dataset.feltPick);
-  if(e.target.closest('#hapBtn'))return toggleHaptics();
   if(e.target.closest('#fxBtn'))return toggleFx();
   if(e.target.closest('#go'))return join();
   if(e.target.closest('#soloBtn')){
@@ -2509,6 +2509,7 @@ function topbarHTML(){
 
 function render(){
   keepAwake();
+  queueMicrotask(placeFab);
   if(location.protocol==='file:'){
     app.className='';showOver('');
     app.innerHTML=`<div class="center"><h1 class="lp-word">Sevens</h1><div class="panel left"><h2>Opened as a local file</h2><ol class="modal-list"><li>Run <code>node server.js</code></li><li>Open <code>http://localhost:3000</code> in your browser, or practice offline below.</li></ol><div class="modal-actions"><button id="soloBtn" class="btn" type="button">Practice vs Bots</button></div></div></div>`;
@@ -2900,10 +2901,10 @@ function table(){
 
   const chips=stripHTML();
   const [msg,cls]=banner(),mine=G.turn===G.you;
-  if(mine&&!wasMyTurn){sfx('turn');buzz(40)}
+  if(mine&&!wasMyTurn)sfx('turn');
   wasMyTurn=mine;
   const freshOver=G.phase==='over'&&wasPhase!=='over';
-  if(freshOver){sfx('loser');buzz([30,60,30])}
+  if(freshOver)sfx('loser');
   const freshInvalid=G.phase==='invalid'&&wasPhase!=='invalid';
   const freshFinal=G.phase==='final'&&wasPhase!=='final';
   if(freshFinal)sfx('loser');
@@ -2913,7 +2914,7 @@ function table(){
   <div class="workspace">
     <div class="table-col">
       <div class="players">${chips}</div>
-      <div class="board">${feltFx()}<div class="bi ${wide?'w':''}">${board}</div>${G.phase==='playing'?`<button id="qBtn" class="felt-fab${document.getElementById('qTray')?' on':''}" type="button" aria-label="Quick phrases" aria-haspopup="true"><svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 6.5a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01z"/></svg></button>`:''}</div>
+      <div class="board">${feltFx()}<div class="bi ${wide?'w':''}">${board}</div></div>
       <div class="banner ${cls}">
         <span id="bt">${msg}</span>${passBtn()}${G.wait&&G.host===G.you?' <button class="btn sm" data-a="skipwait" type="button">Skip wait</button>':''}
       </div>
@@ -2958,19 +2959,22 @@ function layout(wide){
   fit();
   placeFab();
 }
-// The phrase button sits on free felt: up the right edge first, then along the bottom, never on a card.
-// Reads every rect first and writes once, so it adds no layout thrash.
+// The phrase button stays in one place all game: on the felt's bottom-right rim, mostly outside the felt, so a full
+// felt late in a round can't hide it. It lives outside #app (the table is redrawn on every move) and follows the felt.
+const FAB_SVG='<svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 6.5a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01zm5 0a1.5 1.5 0 1 0 0 .01z"/></svg>';
 function placeFab(){
-  const f=document.getElementById('qBtn'),bd=app.querySelector('.board');if(!f||!bd)return;
-  const B=bd.getBoundingClientRect(),S=f.offsetWidth||34,pad=7;
-  const occ=[...bd.querySelectorAll('.card,.lab,.slot,.suit-out:not(.spacer)')].map(e=>e.getBoundingClientRect());
-  const free=(x,y)=>!occ.some(r=>x<r.right+2&&x+S>r.left-2&&y<r.bottom+2&&y+S>r.top-2);
-  let spot=null;
-  for(let y=B.bottom-pad-S;!spot&&y>=B.top+pad;y-=6)if(free(B.right-pad-S,y))spot=[B.right-pad-S,y];
-  for(let x=B.right-pad-S-6;!spot&&x>=B.left+pad;x-=6)if(free(x,B.bottom-pad-S))spot=[x,B.bottom-pad-S];
-  f.style.visibility=spot?'':'hidden'; // a completely full felt (rare, late in a round): never cover a card
-  if(!spot)return;
-  f.style.left=Math.round(spot[0]-B.left-1)+'px';f.style.top=Math.round(spot[1]-B.top-1)+'px';
+  let f=document.getElementById('qBtn');
+  const bd=G&&G.phase==='playing'&&app.classList.contains('t')?app.querySelector('.board'):null;
+  if(!bd){if(f)f.hidden=true;return}
+  if(!f){
+    f=document.createElement('button');f.id='qBtn';f.type='button';f.className='felt-fab';
+    f.setAttribute('aria-label','Quick phrases');f.setAttribute('aria-haspopup','true');f.innerHTML=FAB_SVG;
+    document.body.appendChild(f);
+  }
+  f.hidden=false;
+  const B=bd.getBoundingClientRect(),S=34;
+  f.style.left=Math.round(Math.max(4,Math.min(innerWidth-S-4,B.right-22)))+'px';
+  f.style.top=Math.round(B.bottom-16)+'px';
 }
 
 // Reads every row's size first, then positions the cards: interleaving the two forced a full layout per row,
@@ -3014,12 +3018,12 @@ function announceSetAside(){
 // ---------- table extras: quick phrases, seat bubbles, voice notes, settings ----------
 // Phrases go by index (the server has the same list), so they can never carry other text.
 const PHRASES=['Is that all you’ve got? 😏','Hurry up, I’m aging 👴','Ouch, that stings 🐝','Bow to the master 👑','Kya baat hai! 🔥','Bas kar bhai 😂','Aaj toh gaya tu 😈']; // the seven fixed ones (server.js has the same list)
-const MY_LINE_MAX=40;
+const MY_LINE_MAX=26; // as long as the longest fixed phrase, so a bubble shows it whole
 // the 8th slot is the player's own line: empty until they write one (kept on the phone, sevensMyLine)
 const myLine=()=>String(getStore('sevensMyLine')||'').replace(/\s+/g,' ').trim().slice(0,MY_LINE_MAX);
 const MIC_SVG='<svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
 const PLAY_ICONS='<svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>';
-let resumedAt=0,phraseAt=0,othersBuzzAt=0;
+let resumedAt=0,phraseAt=0;
 
 // Seat bubbles: a short-lived note under the sender's chip. They live in their own layer, outside #app,
 // so the table re-rendering (every move) never wipes them; placeBubbles() re-anchors them after each paint.
@@ -3069,7 +3073,6 @@ function bubbleNew(list){
     if(m.kind==='phrase'&&m.pid===G.you)continue; // already shown the moment it was tapped
     if(m.kind==='voice')showBubble(m.pid,vnButton(m,'bub-play'),6500,'voice');
     else showBubble(m.pid,esc(m.text),3500,'');
-    if(m.pid!==G.you&&Date.now()-othersBuzzAt>2000){othersBuzzAt=Date.now();buzz(15)}
   }
 }
 
@@ -3138,8 +3141,7 @@ function sendPhrase(i){ // i: 0-6 a fixed phrase, 7 the player's own line
 function toggleSettings(){if(document.getElementById('setPop'))return closePops();openSettings()}
 function settingsHTML(){
   return `<div class="pop-title">Table felt</div><div class="felts">${FELTS.map(([k,n,c])=>`<button type="button" class="felt${k===felt?' on':''}" data-felt-pick="${k}" aria-pressed="${k===felt}" style="--c:${c}"><i></i>${n}</button>`).join('')}</div>`
-    +`<button type="button" class="pop-row" id="fxBtn" role="switch" aria-checked="${fxOn()}">Animations<span class="sw${fxOn()?' on':''}"></span></button>`
-    +(navigator.vibrate?`<button type="button" class="pop-row" id="hapBtn" role="switch" aria-checked="${haptics}">Vibration<span class="sw${haptics?' on':''}"></span></button>`:'');
+    +`<button type="button" class="pop-row" id="fxBtn" role="switch" aria-checked="${fxOn()}">Animations<span class="sw${fxOn()?' on':''}"></span></button>`;
 }
 function openSettings(){
   closePops();
@@ -3159,11 +3161,6 @@ function pickFelt(k){
 function toggleFx(){
   const on=!fxOn();fxPref=on?'on':'off';setStore('sevensFx',fxPref);
   document.documentElement.classList.toggle('nofx',!on);
-  const p=document.getElementById('setPop');if(p)p.innerHTML=settingsHTML();
-}
-function toggleHaptics(){
-  haptics=!haptics;setStore('sevensHaptics',haptics?'1':'0');
-  if(haptics)buzz(20);
   const p=document.getElementById('setPop');if(p)p.innerHTML=settingsHTML();
 }
 
