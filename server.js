@@ -125,7 +125,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [], joins: [], voices: [] };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [], joins: [], gone: [], voices: [] };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -636,9 +636,17 @@ function finishRound(S, winner) {
     if (q.roundPts > 0) summary.push(q.name + ' +' + q.roundPts + ' pts');
   }
   // every round's points, by player id and name, for the end-of-game results (kept even if a player leaves)
-  S.history.push({ round: S.round, rows: S.players.filter(q => !q.spectator).map(q => ({ id: q.id, name: q.name, pts: q.roundPts, place: q.place })) });
+  const rows = S.players.filter(q => !q.spectator).map(q => ({ id: q.id, name: q.name, pts: q.roundPts, place: q.place }));
+  // lowest total wins, so a round sat out must cost something: anyone who played an earlier round of this game and
+  // missed this one (left, or back but only watching) is charged the round's highest score
+  const top = Math.max(0, ...rows.map(r => r.pts)), names = new Map();
+  for (const h of S.history) for (const r of h.rows) names.set(r.id, r.name);
+  for (const q of S.players) if (names.has(q.id)) names.set(q.id, q.name);
+  const away = [];
+  for (const [id, name] of names) if (!rows.some(r => r.id === id)) { rows.push({ id, name, pts: top, place: 0, missed: true }); away.push(name); }
+  S.history.push({ round: S.round, rows });
   const prefix = winner ? (winner.name + ' went out first! ') : 'Round ended (board locked). ';
-  addLog(S, prefix + (summary.length ? summary.join(', ') : '0 pts added'));
+  addLog(S, prefix + (summary.length ? summary.join(', ') : '0 pts added') + (away.length ? '. Away: ' + away.join(', ') + ' +' + top + ' pts each (the round’s highest)' : ''));
 }
 
 function afterMove(S) {
@@ -772,6 +780,8 @@ function start(S) {
 // Safely removes a player from S.players while preserving S.turn index integrity!
 function forgetPlayer(S, p) {
   clearTimeout(p.dtimer); clearTimeout(p.btimer);
+  // someone with rounds in this game: remembered, so coming back from the same browser keeps their standing
+  if (p.cid && S.gone && S.history.some(h => h.rows.some(r => r.id === p.id)) && !S.gone.some(g => g.id === p.id)) S.gone.push({ id: p.id, cid: p.cid });
   const curTurnP = S.turn >= 0 && S.turn < S.players.length ? S.players[S.turn] : null;
   const oldIdx = S.players.indexOf(p);
   S.players = S.players.filter(x => x !== p);
@@ -873,7 +883,10 @@ function join(b, ip) {
   let nm = base, k = 2;
   const rootPrefix = root.slice(0, 11).trim();
   while (S.players.some(x => x.name.toLowerCase() === nm.toLowerCase())) nm = rootPrefix + ' ' + k++;
-  const p = { id: S.nid++, t: crypto.randomBytes(16).toString('hex'), cid, baseName: baseKey, name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing', joinedOnce: false };
+  // back from the same browser after being dropped: same id, so the rounds they missed stay theirs and they aren't new
+  const gi = cid && S.gone ? S.gone.findIndex(g => g.cid === cid && !S.players.some(x => x.id === g.id)) : -1;
+  const pid = gi >= 0 ? S.gone.splice(gi, 1)[0].id : S.nid++;
+  const p = { id: pid, t: crypto.randomBytes(16).toString('hex'), cid, baseName: baseKey, name: nm, hand: [], on: false, done: false, place: 0, score: 0, roundPts: 0, leftCards: [], spectator: S.phase === 'playing', joinedOnce: false };
   S.players.push(p);
   byToken.set(p.t, { S, p });
   p.dtimer = setTimeout(() => {
@@ -913,7 +926,7 @@ function act(b, ip) {
   if (b.a === 'resetscores') {
     if (p.id !== hostId(S)) return { err: 'Only the host can reset scores', state: view(S, p) };
     if (S.phase === 'playing') return { err: 'Cannot reset during an active round', state: view(S, p) };
-    S.round = 0; S.history = []; S.joins = [];
+    S.round = 0; S.history = []; S.joins = []; S.gone = [];
     S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; });
     notify(S, 'The host reset all table scores to 0.');
     push(S); return { state: view(S, p) };
@@ -932,7 +945,7 @@ function act(b, ip) {
   if (b.a === 'newgame') {
     if (p.id !== hostId(S)) return { err: 'Only the host can start a new game', state: view(S, p) };
     if (S.phase !== 'final') return { err: 'End the game first', state: view(S, p) };
-    S.phase = 'lobby'; S.round = 0; S.history = []; S.joins = []; S.turn = -1;
+    S.phase = 'lobby'; S.round = 0; S.history = []; S.joins = []; S.gone = []; S.turn = -1;
     S.board = [null, null, null, null]; S.started = false; S.places = 0; S.last = -1; S.removed = []; S.alerts = [];
     S.players.forEach(q => { q.score = 0; q.roundPts = 0; q.leftCards = []; q.hand = []; q.place = 0; q.done = false; q.spectator = false; });
     notify(S, 'New game! Scores are back to 0.', 'join');

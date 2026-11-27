@@ -759,6 +759,8 @@ button.res-row:focus-visible{outline:2px solid var(--gold-2);outline-offset:-2px
 .res-chip.won{color:var(--ok-soft);background:rgba(var(--ok-rgb),.12)}
 .res-chip.won i{color:var(--ok-soft)}
 .res-chip.na{color:var(--faint)}
+.res-chip.away{color:var(--danger-soft);background:rgba(var(--danger-rgb),.12)}
+.res-chip.away i{color:inherit;opacity:.8}
 .res-chip.join{color:var(--gold-1);background:rgba(var(--gold-rgb),.1)}
 .res-chip.join i{color:var(--gold-2)}
 .sc-roast{flex:none;margin:8px 8px 0;font-size:12px;line-height:1.4;color:var(--faint);font-style:italic;text-align:center}
@@ -2756,9 +2758,11 @@ function finalStandings(){
   const hist=(G&&G.history)||[],by=new Map();
   hist.forEach((h,ri)=>h.rows.forEach(r=>{
     let s=by.get(r.id);
-    if(!s){s={id:r.id,name:r.name,total:0,wins:0,best:null,pts:hist.map(()=>null)};by.set(r.id,s)}
+    if(!s){s={id:r.id,name:r.name,total:0,wins:0,best:null,pts:hist.map(()=>null),away:hist.map(()=>false)};by.set(r.id,s)}
     const v=r.pts||0;
-    s.name=r.name;s.total+=v;s.pts[ri]=v;if(r.place===1)s.wins++;if(s.best==null||v<s.best)s.best=v;
+    s.name=r.name;s.total+=v;s.pts[ri]=v;
+    if(r.missed){s.away[ri]=true;return} // sat out: charged the round's highest, never a win or a best round
+    if(r.place===1)s.wins++;if(s.best==null||v<s.best)s.best=v;
   }));
   ((G&&G.joins)||[]).forEach(j=>{const s=by.get(j.id);if(s){s.total+=j.pts;s.join=j}});
   const here=new Set((G?G.players:[]).map(p=>p.id));
@@ -2789,6 +2793,7 @@ function buildFinalModal(fresh){
     const joined=p.join?`<span class="res-chip join" title="Joined in round ${p.join.round}: started at 90% of the table's highest total"><i>Joined R${p.join.round}</i>+${p.join.pts}</span>`:'';
     const chips=joined+p.pts.map((v,i)=>v==null
       ?`<span class="res-chip na"><i>R${hist[i].round}</i>–</span>`
+      :p.away[i]?`<span class="res-chip away" title="Away for round ${hist[i].round}: charged that round's highest score"><i>R${hist[i].round} away</i>${v}</span>`
       :`<span class="res-chip${hist[i].rows.some(r=>r.id===p.id&&r.place===1)?' won':''}"><i>R${hist[i].round}</i>${v}</span>`).join('');
     return `<li class="res-item${idx===0?' win':''}" style="--h:${nameHue(p.name)};--i:${idx}">
       <button class="res-row" type="button" data-pid="${p.id}" aria-expanded="${open}" aria-controls="resR${p.id}" title="Show ${esc(p.name)}'s rounds">${
