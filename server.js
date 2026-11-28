@@ -37,6 +37,11 @@ const VOICE_MAX_BYTES = 160 * 1024, VOICE_MIN_MS = 500, VOICE_MAX_MS = 8500, VOI
 const VOICE_TTL = +env('VOICE_TTL_MS', 600000), VOICE_TOTAL_MAX = +env('VOICE_TOTAL_MAX', 32 * 1024 * 1024);
 const VOICE_TYPES = ['audio/mp4', 'audio/webm', 'audio/ogg', 'audio/aac', 'audio/mpeg'];
 let voiceTotal = 0, voiceSeq = 0;
+// Live talk (walkie-talkie): phones post 250ms pieces of 8kHz G.711 mu-law audio; each piece goes straight out on the
+// table's event streams and is kept, so a finished talk becomes a replayable clip for whoever didn't hear it live.
+const LIVE_TALK = env('LIVE_TALK', '1') !== '0';
+const TALK_RATE = 8000, TALK_MAX_MS = 15000, TALK_MAX_BYTES = TALK_RATE * 15.5, TALK_CHUNK_MAX = 4000, TALK_MAX_SEQ = 80;
+const TALK_OPEN_MAX = 3, TALK_IDLE = 2500, TALK_END_WAIT = 1500, TALK_GAP = 1000, TALK_PER_MIN = 15;
 
 // index.html is immutable for the life of the process: compress once, serve with an ETag.
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'));
@@ -125,7 +130,7 @@ function newCode() {
   return c;
 }
 function makeRoom(code) {
-  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [], joins: [], gone: [], voices: [] };
+  return { code, phase: 'lobby', round: 0, players: [], board: [null, null, null, null], turn: -1, log: [], last: -1, places: 0, started: false, nid: 1, timer: null, idle: null, chat: [], chatSeq: 0, alerts: [], endAlerted: false, invalidated: null, removed: [], history: [], joins: [], gone: [], voices: [], talks: new Map() };
 }
 function shareUrl(S) { return PUBLIC_ORIGIN ? PUBLIC_ORIGIN + '/?r=' + S.code : ''; }
 
@@ -192,7 +197,7 @@ function commonView(S) {
       roundPts: q.roundPts || 0,
       leftCards: S.phase === 'over' ? (q.leftCards || []) : []
     })),
-    board: S.board, turn: cur ? cur.id : null, removed: S.removed || [],
+    board: S.board, turn: cur ? cur.id : null, removed: S.removed || [], lt: LIVE_TALK ? 1 : 0,
     last: S.last, log: S.log.slice(-5),
     chat: S.chat.slice(-40), alerts: S.alerts, wait, invalid: inv,
     history: S.phase === 'final' ? S.history : undefined, // only needed for the end-of-game results
@@ -375,6 +380,94 @@ function voiceUpload(req, res, u) {
     addChat(S, p.name, '\u{1F3A4} voice note', false, 'voice', { pid: p.id, vid, dur: Math.round(ms / 100) / 10 });
     push(S);
     json(res, 200, { ok: true, vid });
+  });
+}
+// ---- live talk ----
+const ULAW = (() => { const t = new Int16Array(256); for (let i = 0; i < 256; i++) { const u = ~i & 255, e = (u >> 4) & 7, m = u & 15; let v = ((m << 3) + 132) << e; v -= 132; t[i] = u & 128 ? -v : v; } return t; })();
+function wavFromUlaw(ul) { // 16-bit PCM, which every browser's <audio> plays
+  const n = ul.length, b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0, 'latin1'); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8, 'latin1');
+  b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(TALK_RATE, 24);
+  b.writeUInt32LE(TALK_RATE * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36, 'latin1'); b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(ULAW[ul[i]], 44 + i * 2);
+  return b;
+}
+function talkSend(S, except, obj) {
+  const line = 'event: talk\ndata: ' + JSON.stringify(obj) + '\n\n';
+  for (const q of S.players) { if (q === except) continue; for (const r of conns.get(q.t) || []) sseWrite(r, line); }
+}
+// a talk is over: dropped when cancelled or too short, otherwise kept as a clip (a chat entry with a ▶)
+function closeTalk(S, t) {
+  if (t.closed) return;
+  t.closed = true; clearTimeout(t.timer);
+  if (S.talks && S.talks.get(t.id) === t) S.talks.delete(t.id);
+  const parts = [];
+  for (let i = 0; i <= t.maxSeq; i++) parts.push(t.chunks[i] || Buffer.alloc(t.chunkLen || 2000, 0xff)); // a lost piece: silence
+  const ul = Buffer.concat(parts).subarray(0, TALK_MAX_BYTES), ms = ul.length / (TALK_RATE / 1000);
+  const p = S.players.find(x => x.id === t.pid);
+  if (t.cancel || ms < 500 || !p || rooms.get(S.code) !== S) { talkSend(S, null, { id: t.id, pid: t.pid, end: t.count, drop: 1 }); return; }
+  const buf = wavFromUlaw(ul);
+  expireClips(S);
+  while (S.voices.length >= VOICE_PER_TABLE) dropClip(S, 0);
+  fitClipBudget(buf.length);
+  const vid = (++voiceSeq).toString(36) + crypto.randomBytes(6).toString('hex');
+  S.voices.push({ vid, buf, type: 'audio/wav', at: Date.now(), pid: t.pid });
+  voiceTotal += buf.length;
+  talkSend(S, null, { id: t.id, pid: t.pid, end: t.count }); // before the chat entry, so listeners know they heard it
+  addChat(S, p.name, '\u{1F3A4} live talk', false, 'voice', { pid: t.pid, vid, dur: Math.round(ms / 100) / 10, live: t.id });
+  push(S);
+}
+function talkPost(req, res, u) {
+  const rec = byToken.get(u.searchParams.get('t') || '');
+  if (!rec) { req.resume(); return json(res, 404, { err: 'Not joined' }); }
+  const { S, p } = rec;
+  if (!LIVE_TALK) { req.resume(); return json(res, 403, { err: 'Live talk is off', off: true }); }
+  const id = String(u.searchParams.get('id') || '');
+  if (!/^[a-z0-9]{6,16}$/.test(id)) { req.resume(); return json(res, 400, { err: 'Bad talk' }); }
+  if (!S.talks) S.talks = new Map();
+  let tk = S.talks.get(id);
+  if (tk && tk.pid !== p.id) { req.resume(); return json(res, 403, { err: 'Not your talk' }); }
+  if (u.searchParams.has('end')) { // the talker let go: n pieces were sent
+    req.resume();
+    if (!tk) return json(res, 200, { ok: true });
+    tk.cancel = u.searchParams.get('cancel') === '1';
+    tk.endN = Math.max(0, Math.min(TALK_MAX_SEQ, Math.floor(+u.searchParams.get('end')) || 0));
+    clearTimeout(tk.timer);
+    if (tk.cancel || tk.count >= tk.endN) closeTalk(S, tk);
+    else tk.timer = setTimeout(() => closeTalk(S, tk), TALK_END_WAIT); // pieces still on their way
+    return json(res, 200, { ok: true });
+  }
+  const seq = Number(u.searchParams.get('s'));
+  if (!Number.isInteger(seq) || seq < 0 || seq >= TALK_MAX_SEQ) { req.resume(); return json(res, 400, { err: 'Bad piece' }); }
+  if (String(req.headers['content-type'] || '').toLowerCase().split(';')[0].trim() !== 'application/octet-stream') { req.resume(); return json(res, 415, { err: 'Expected audio bytes' }); }
+  if (+req.headers['content-length'] > TALK_CHUNK_MAX) { res.setHeader('Connection', 'close'); req.resume(); return json(res, 413, { err: 'Too big' }); }
+  if (!tk) { // a new talk
+    const now = Date.now();
+    for (const o of [...S.talks.values()]) if (o.pid === p.id) closeTalk(S, o); // one at a time per player
+    if (S.talks.size >= TALK_OPEN_MAX) { req.resume(); return json(res, 409, { err: '3 people are talking. Wait a moment.', busy: true }); }
+    if ((p.talkAt && now - p.talkAt < TALK_GAP) || !hit('talk:' + p.t, TALK_PER_MIN, 60000)) { req.resume(); res.setHeader('Retry-After', '2'); return json(res, 429, { err: 'Wait a moment before talking again' }); }
+    p.talkAt = now;
+    tk = { id, pid: p.id, chunks: [], count: 0, maxSeq: -1, bytes: 0, chunkLen: 0, at: now, closed: false, endN: null, timer: null };
+    tk.timer = setTimeout(() => closeTalk(S, tk), TALK_IDLE);
+    S.talks.set(id, tk);
+  }
+  const parts = []; let size = 0, aborted = false;
+  req.on('error', () => { aborted = true; });
+  req.on('data', c => { if (aborted) return; size += c.length; if (size > TALK_CHUNK_MAX) { aborted = true; res.setHeader('Connection', 'close'); json(res, 413, { err: 'Too big' }); req.destroy(); return; } parts.push(c); });
+  req.on('end', () => {
+    if (aborted) return;
+    const buf = Buffer.concat(parts);
+    if (tk.closed) return json(res, 410, { err: 'This talk has ended', ended: true });
+    if (!buf.length) return json(res, 400, { err: 'Empty piece' });
+    if (tk.chunks[seq]) return json(res, 200, { ok: true }); // a retry
+    if (tk.bytes + buf.length > TALK_MAX_BYTES) { closeTalk(S, tk); return json(res, 413, { err: 'Live talk is 15 seconds at most', ended: true }); }
+    tk.chunks[seq] = buf; tk.count++; tk.bytes += buf.length; tk.maxSeq = Math.max(tk.maxSeq, seq);
+    if (!tk.chunkLen || seq === 0) tk.chunkLen = buf.length;
+    talkSend(S, p, { id, pid: p.id, s: seq, a: buf.toString('base64') });
+    clearTimeout(tk.timer);
+    if (tk.endN != null && tk.count >= tk.endN) closeTalk(S, tk);
+    else tk.timer = setTimeout(() => closeTalk(S, tk), tk.endN != null ? TALK_END_WAIT : TALK_IDLE);
+    json(res, 200, { ok: true });
   });
 }
 function voiceGet(req, res, u, vid) {
@@ -800,6 +893,7 @@ function forgetPlayer(S, p) {
 
 function dropRoom(S) {
   clearTimeout(S.timer); clearTimeout(S.idle);
+  if (S.talks) { for (const t of S.talks.values()) { t.closed = true; clearTimeout(t.timer); } S.talks.clear(); }
   for (const p of [...S.players]) forgetPlayer(S, p);
   while (S.voices && S.voices.length) dropClip(S, 0);
   rooms.delete(S.code);
@@ -1105,6 +1199,14 @@ function handle(req, res) {
     catch (e) { return json(res, 400, { err: 'Invalid origin' }); }
     return voiceUpload(req, res, u);
   }
+  if (req.method === 'POST' && u.pathname === '/talk') {
+    // its own per-address bucket: a talker posts 4 pieces a second, and a table often shares one Wi-Fi address
+    if (!hit('talkip:' + clientIp(req), 600, 10000)) { req.resume(); res.setHeader('Retry-After', '2'); return json(res, 429, { err: 'Too many requests. Please slow down.' }); }
+    const origin = req.headers.origin;
+    try { if (origin && req.headers.host && new URL(origin).host !== req.headers.host) { req.resume(); return json(res, 403, { err: 'Cross-origin request blocked' }); } }
+    catch (e) { req.resume(); return json(res, 400, { err: 'Invalid origin' }); }
+    return talkPost(req, res, u);
+  }
   if ((req.method === 'GET' || req.method === 'HEAD') && u.pathname.startsWith('/voice/')) {
     if (!checkRate(req, IP_FLOOD_MAX, 10000)) { res.writeHead(429, { ...SEC_HEADERS, 'Retry-After': '2' }); return res.end(); }
     return voiceGet(req, res, u, u.pathname.slice(7));
@@ -1196,4 +1298,4 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 }
 
-module.exports = { removedFor,  botChoose, heurChoose, evalMove, cardPts, handPts, hasFourKings, canFinishInThree, createAppServer, rooms, byToken, GRACE, INVALID_WAIT, PHRASES, voiceBytes: () => voiceTotal, sweepClips };
+module.exports = { removedFor,  botChoose, heurChoose, evalMove, cardPts, handPts, hasFourKings, canFinishInThree, createAppServer, rooms, byToken, GRACE, INVALID_WAIT, PHRASES, voiceBytes: () => voiceTotal, sweepClips, wavFromUlaw, LIVE_TALK };

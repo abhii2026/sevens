@@ -641,7 +641,10 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   font:600 14px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--text);animation:popIn .18s var(--ease) both;
 }
 #recBar.wait .dot{background:var(--muted)}
-#recBar.hold{pointer-events:none} /* the finger is on the mic: the other hand can still play a card under the bar */
+#recBar.hold{pointer-events:none}
+#recBar.live:not(.wait) .rec-t::before{content:"LIVE";margin-right:8px;padding:2px 6px;border-radius:6px;font-size:10.5px;letter-spacing:.08em;color:#fff;background:var(--danger)}
+.pl.talking .pl-av::before{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid hsl(var(--h) 85% 70%);animation:talkRing .9s ease-in-out infinite}
+@keyframes talkRing{50%{opacity:.25}} /* the finger is on the mic: the other hand can still play a card under the bar */
 #recBar .hint{color:var(--muted);font-weight:500;font-size:12.5px;white-space:nowrap}
 #recBar.wait .hint{color:var(--text)}
 @media (max-width:380px){#recBar .hint-x{display:none}} /* narrow phones: the short hint */
@@ -1903,6 +1906,7 @@ function connect(){
     applyIncomingState(JSON.parse(e.data));
   };
   es.onopen=()=>{recoverTries=0};
+  es.addEventListener('talk',e=>{try{onTalk(JSON.parse(e.data))}catch(err){}});
   // this seat was just reclaimed by another tab or window of this browser: step aside, don't fight for it
   es.addEventListener('replaced',()=>{
     if(es)es.close();es=null;T='';G=null;lastSig='';
@@ -1943,7 +1947,7 @@ setInterval(()=>{
   if(T&&!practiceMode&&es&&es.readyState===1&&Date.now()-lastActive<30*60000)fetch('/health',{cache:'no-store'}).catch(()=>{});
 },5*60000);
 function forgetSeat(){
-  settle();stopRec(false);stopClip();closePops();clearBubbles();unheard.clear();
+  settle();stopRec(false);stopClip();hushLive();closePops();clearBubbles();unheard.clear();talkers.clear();liveIn.clear();
   T='';setStore('sevensT',null);G=null;lastSig='';
   render();
 }
@@ -2357,7 +2361,7 @@ document.addEventListener('click',async e=>{
     copyText(url,markCopied);return;
   }
   if(e.target.closest('#soundBtn')){
-    muted=!muted;setStore('sevensMute',muted?'1':'0');if(muted)stopClip();
+    muted=!muted;setStore('sevensMute',muted?'1':'0');if(muted){stopClip();hushLive()}
     toast(muted?'Sound muted':'Sound enabled');
     renderTopbarState();return;
   }
@@ -2923,7 +2927,7 @@ function stripHTML(){
   return aside+G.players.map(q=>{
     const st=q.spec?'next round':q.bot?(practiceMode?'':'bot playing'):!q.on?'reconnecting…':'';
     const cards=q.spec?'':`<span class="pl-cards${q.n<=3?' low':''}" aria-label="${q.n} card${q.n===1?'':'s'} left"><i></i>${q.n}</span>`;
-    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}" data-pid="${q.id}" style="--h:${nameHue(q.name)}">
+    return `<div class="pl ${q.id===G.turn?'turn':''} ${q.on?'':'off'}${talkers.has(q.id)?' talking':''}" data-pid="${q.id}" style="--h:${nameHue(q.name)}">
       <span class="pl-av" aria-hidden="true">${esc((String(q.name).trim()[0]||'?').toUpperCase())}<span class="pl-dot"></span></span>
       <span class="pl-name">${esc(q.name)}${q.id===G.you?' (you)':''}</span>
       ${st?`<span class="pl-meta">${st}</span>`:''}${cards}${vnBadge(q.id)}
@@ -3029,7 +3033,8 @@ function placeFab(){
   if(practiceMode||!T||!recType()){if(m)m.hidden=true;return}
   if(!m){
     m=document.createElement('button');m.id='micFab';m.type='button';m.className='felt-fab';
-    m.setAttribute('aria-label','Voice note: hold to talk, let go to send');m.innerHTML=MIC_SVG;
+    m.setAttribute('aria-label','Hold to talk, let go to send');m.innerHTML=MIC_SVG;
+    if(matchMedia('(hover:hover)').matches)m.title='Hold to talk (or hold Space)';
     document.body.appendChild(m);
   }
   m.hidden=false;m.style.left=(left-44)+'px';m.style.top=top+'px';
@@ -3129,7 +3134,7 @@ function bubbleNew(list){
   for(const m of list){
     if(m.sys||m.pid==null||(m.kind!=='phrase'&&m.kind!=='voice'))continue;
     if(m.kind==='phrase'&&m.pid===G.you)continue; // already shown the moment it was tapped
-    if(m.kind==='voice'){if(m.pid!==G.you)showBubble(m.pid,`<button type="button" class="bub-play" data-vnp="${m.pid}" aria-label="Play voice notes from ${esc(m.name)}">${MIC_SVG}<span>Voice note</span></button>`,4500,'voice')}
+    if(m.kind==='voice'){if(m.pid!==G.you&&!(m.live&&heardLive.has(m.live)))showBubble(m.pid,`<button type="button" class="bub-play" data-vnp="${m.pid}" aria-label="Play voice notes from ${esc(m.name)}">${MIC_SVG}<span>Voice note</span></button>`,4500,'voice')}
     else showBubble(m.pid,esc(m.text),3500,'');
   }
 }
@@ -3233,6 +3238,13 @@ function recType(){
 async function startRec(held){
   closePops();
   if(rec||practiceMode||!T)return;
+  if(held&&liveReady()){
+    if(othersTalking()>=TALK_OPEN_MAX)return toast('3 people are talking. Wait a moment.');
+    const r={starting:true,hold:true,talk:true};rec=r;
+    talkCtx(); // made or resumed inside the press, the only time iPhones allow it
+    paintRecBar(-1);
+    return startLive(r);
+  }
   const type=recType();
   if(!type||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return toast('Voice notes don\u2019t work in this browser');
   const r={starting:true,hold:!!held};rec=r;
@@ -3263,7 +3275,7 @@ async function startRec(held){
 }
 function paintRecBar(ms){
   let b=document.getElementById('recBar');
-  const held=!!(rec&&rec.hold);
+  const held=!!(rec&&rec.hold),live=!!(rec&&rec.talk);
   if(b&&b.classList.contains('hold')!==held){b.remove();b=null}
   if(!b&&held){
     b=document.createElement('div');b.id='recBar';b.className='hold';b.setAttribute('role','status');
@@ -3275,15 +3287,21 @@ function paintRecBar(ms){
     b.innerHTML=`<span class="dot"></span><span class="rec-t"><span id="recTime">0:00</span><span class="rec-max"> / 0:08</span></span><button id="recCancel" type="button" aria-label="Cancel voice note"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button><button id="recSend" type="button" aria-label="Send voice note"><svg viewBox="0 0 24 24"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>`;
     document.body.appendChild(b);
   }
-  const t=document.getElementById('recTime');if(t)t.textContent=ms<0?'Starting…':'0:0'+Math.min(8,Math.floor(ms/1000));
+  const lim=live?TALK_MAX:REC_MAX,mmss=v=>'0:'+String(v).padStart(2,'0');
+  const t=document.getElementById('recTime');if(t)t.textContent=ms<0?'Starting…':mmss(Math.min(lim/1000,Math.floor(ms/1000)));
+  const mx=b.querySelector('.rec-max');if(mx)mx.textContent=' / '+mmss(lim/1000);
   b.classList.toggle('wait',ms<0);
+  b.classList.toggle('live',live);
   b.classList.toggle('away',!!(hold&&hold.away));
   if(held){ // just above the mic, over the felt's edge, so the hand stays in sight
     const m=document.getElementById('micFab'),r=m&&!m.hidden&&m.getBoundingClientRect();
     b.style.bottom=r&&r.height?Math.round(Math.max(16,innerHeight-r.top+12))+'px':'';
   }
   // what to do right now: wait while the mic starts (words said before the red dot aren't recorded), then talk
-  const h=document.getElementById('recHint');if(h)h.innerHTML=hold&&hold.away?'Let go to cancel':ms<0?'Wait for the red dot\u2026':'Talk \u00b7 let go to send<span class="hint-x"> \u00b7 slide off to cancel</span>';
+  const key=!!(hold&&hold.key);
+  const h=document.getElementById('recHint');if(h)h.innerHTML=hold&&hold.away?'Let go to cancel':ms<0?'Wait for the red dot…'
+    :key?(live?'Live · release Space to stop':'Talk · release Space to send')+'<span class="hint-x"> · Esc to cancel</span>'
+    :live?'Live · let go to stop<span class="hint-x"> · slide off to cancel</span>':'Talk · let go to send<span class="hint-x"> · slide off to cancel</span>';
   const m=held&&micEl();if(m)m.classList.toggle('live',ms>=0);
 }
 
@@ -3312,12 +3330,36 @@ addEventListener('pointerup',e=>{if(hold&&e.pointerId===hold.id)endHold(false)})
 addEventListener('pointercancel',e=>{if(hold&&e.pointerId===hold.id)endHold(true)});
 addEventListener('lostpointercapture',e=>{if(hold&&e.pointerId===hold.id)endHold(true)});
 addEventListener('contextmenu',e=>{if(e.target.closest&&e.target.closest('#micFab'))e.preventDefault()});
+// Laptops and PCs: holding Space is the same as holding the mic. Not while typing, and not on a hand card reached
+// with Tab (Space plays that card); a focused button doesn't get the Space click either.
+function spaceTalks(e){
+  if(e.code!=='Space'||e.ctrlKey||e.metaKey||e.altKey)return false;
+  const m=micEl();if(!m||m.hidden)return false;
+  const t=e.target;
+  if(t&&t.closest&&(t.closest('input,textarea,select,[contenteditable="true"]')||(t.matches('.hl [data-c]')&&t.matches(':focus-visible'))))return false;
+  return true;
+}
+addEventListener('keydown',e=>{
+  if(!spaceTalks(e))return;
+  e.preventDefault();e.stopPropagation();
+  if(e.repeat||hold)return;
+  if(rec){if(!rec.hold)stopRec(true);return}
+  hold={id:'key',key:true,x:0,y:0,away:false,at:performance.now()};
+  const m=micEl();m.classList.add('rec');m.classList.remove('away');
+  startRec(true);
+},true);
+addEventListener('keyup',e=>{
+  if(e.code!=='Space'||!hold||!hold.key)return;
+  e.preventDefault();e.stopPropagation();
+  endHold(false);
+},true);
+addEventListener('blur',()=>{if(hold&&hold.key)endHold(true)}); // the window lost focus mid-hold: the key-up won't come
 function endHold(cancelled){
   const h=hold;hold=null;
   const m=micEl();if(m)m.classList.remove('rec','away','live');
   const r=rec;if(!h||!r||!r.hold)return; // already sent at 8s, or failed
   const pressed=performance.now()-h.at;
-  if(cancelled||h.away){stopRec(false);return toast('Voice note cancelled')}
+  if(cancelled||h.away){stopRec(false);return toast(r.talk?'Live talk cancelled':'Voice note cancelled')}
   if(!r.live||performance.now()-r.t0<REC_MIN){
     // never asked before: this press went to the permission prompt, and startRec() explains once it's answered
     if(r.starting&&!micAllowed){r.liftedEarly=true;stopRec(false);return}
@@ -3330,6 +3372,7 @@ function endHold(cancelled){
 function stopRec(send){
   const r=rec;if(!r)return;
   if(r.starting){rec=null;const b=document.getElementById('recBar');if(b)b.remove();return} // the mic prompt is still up: startRec() drops the stream when it resolves
+  if(r.talk)return stopLive(r,send);
   if(r.stopping)return;
   r.stopping=true;r.send=!!send;r.dur=r.live?Math.min(REC_MAX,performance.now()-r.t0):0;
   if(send&&!r.live)toast('The microphone was still starting. Try again.');
@@ -3352,6 +3395,130 @@ function finishRec(r){
     .catch(()=>toast('You\u2019re offline. The voice note wasn\u2019t sent.'));
 }
 
+// ---------- Live talk (walkie-talkie) ----------
+// Holding the mic streams 8kHz G.711 mu-law audio in 250ms pieces through the server, which passes each piece on to
+// the table's event streams; listeners schedule them with Web Audio. Plain audio plays the same on every browser
+// (iPhones and Android record different formats), and three talkers simply mix. The switch is LIVE_TALK in
+// server.js (sent as lt); off, or on a browser that can't capture raw audio, the mic records voice notes instead.
+const TALK_RATE=8000,TALK_CHUNK=2000,TALK_CH=TALK_CHUNK/TALK_RATE,TALK_MAX=15000,TALK_OPEN_MAX=3,TALK_JITTER=.3;
+let liveBroken=false; // this browser or the server couldn't: voice notes for the rest of the visit
+const talkers=new Map(); // player id -> last time a piece of their talk was seen (the "talking" ring)
+const liveIn=new Map(); // talk id -> {pid,base,maxS,played,srcs}
+const heardLive=new Set(); // talk ids heard live: their replay clips get no badge
+function liveReady(){
+  return !!G&&G.lt===1&&!liveBroken&&!practiceMode&&!!T&&!!(window.AudioContext||window.webkitAudioContext)
+    &&!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)&&'createScriptProcessor' in (window.AudioContext||window.webkitAudioContext).prototype;
+}
+function talkCtx(){
+  try{if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){return null}
+  if(audioCtx.state==='suspended')audioCtx.resume().catch(()=>{});
+  return audioCtx;
+}
+// iPhones start audio only from a tap: any tap at a table with live talk readies it for listening
+addEventListener('pointerdown',()=>{if(G&&G.lt===1&&T&&!muted&&!practiceMode)talkCtx()},{capture:true,passive:true});
+function othersTalking(){let n=0;for(const pid of talkers.keys())if(!G||pid!==G.you)n++;return n}
+const ULAW_DEC=(()=>{const t=new Float32Array(256);for(let i=0;i<256;i++){const u=~i&255,e=(u>>4)&7,m=u&15;let v=((m<<3)+132)<<e;v-=132;t[i]=(u&128?-v:v)/32768}return t})();
+function ulawEnc(x){
+  let v=Math.round(x*32767);const sign=v<0?128:0;if(v<0)v=-v;if(v>32635)v=32635;v+=132;
+  let e=7;for(let m=0x4000;!(v&m)&&e>0;m>>=1)e--;
+  return ~(sign|(e<<4)|((v>>(e+3))&15))&255;
+}
+async function startLive(r){
+  let stream;
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}})}
+  catch(e){if(rec===r)rec=null;const b=document.getElementById('recBar');if(b&&!rec)b.remove();return toast(e&&(e.name==='NotAllowedError'||e.name==='SecurityError')?'Allow the microphone to talk':'Couldn’t use the microphone')}
+  micAllowed=true;
+  if(rec!==r||document.hidden||!T){
+    stream.getTracks().forEach(t=>t.stop());if(rec===r)rec=null;
+    if(r.hold&&r.liftedEarly&&!document.hidden)toast('Microphone ready. Hold the mic while you talk.');
+    return;
+  }
+  const ctx=talkCtx();let src,proc,sink;
+  try{
+    src=ctx.createMediaStreamSource(stream);proc=ctx.createScriptProcessor(2048,1,1);sink=ctx.createGain();sink.gain.value=0;
+    src.connect(proc);proc.connect(sink);sink.connect(ctx.destination); // a silent sink: the processor only runs when connected
+  }catch(e){
+    stream.getTracks().forEach(t=>t.stop());if(rec===r)rec=null;liveBroken=true;
+    const b=document.getElementById('recBar');if(b)b.remove();
+    return toast('Live talk doesn’t work in this browser. Hold the mic again to send a voice note.');
+  }
+  const ratio=ctx.sampleRate/TALK_RATE;
+  Object.assign(r,{starting:false,live:false,stream,src,proc,sink,id:(Date.now().toString(36)+Math.random().toString(36).slice(2,8)).slice(-12),
+    seq:0,out:new Uint8Array(TALK_CHUNK),n:0,ratio,phase:0,acc:0,cnt:0,t0:performance.now()});
+  proc.onaudioprocess=e=>{
+    if(r.stopping)return;
+    const x=e.inputBuffer.getChannelData(0);
+    if(!r.live){r.live=true;r.t0=performance.now();markTalking(G&&G.you,true);paintRecBar(0)}
+    for(let i=0;i<x.length;i++){ // average each 1/8000 s of input: downsampling with a simple low-pass
+      r.acc+=x[i];r.cnt++;r.phase+=1;
+      if(r.phase>=r.ratio){r.phase-=r.ratio;r.out[r.n++]=ulawEnc(r.acc/r.cnt);r.acc=0;r.cnt=0;if(r.n===TALK_CHUNK)sendPiece(r)}
+    }
+  };
+  r.timer=setInterval(()=>{if(!r.live)return;const ms=performance.now()-r.t0;if(ms>=TALK_MAX)stopRec(true);else{paintRecBar(ms);markTalking(G&&G.you,true)}},200);
+}
+function sendPiece(r){
+  if(!r.n)return;
+  const body=r.out.slice(0,r.n),s=r.seq++;r.n=0;
+  fetch('/talk?t='+encodeURIComponent(T)+'&id='+r.id+'&s='+s,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body})
+    .then(x=>x.json().catch(()=>({})).then(o=>[x.status,o]))
+    .then(([st,o])=>{
+      if(st<400||rec!==r)return;
+      if(st===403&&o&&o.off){liveBroken=true;stopRec(false);return toast('Live talk is off. Hold the mic again to send a voice note.')}
+      if(st===409){stopRec(false);return toast(o.err||'3 people are talking. Wait a moment.')}
+      if(st===413){stopRec(true);return}
+      if(s===0){stopRec(false);toast(o&&o.err||'Couldn’t start talking. Try again.')}
+    })
+    .catch(()=>{if(rec===r&&s===0){stopRec(false);toast('You’re offline.')}});
+}
+function stopLive(r,send){
+  if(r.stopping)return;
+  r.stopping=true;clearInterval(r.timer);
+  const b=document.getElementById('recBar');if(b)b.remove();
+  const dur=r.live?performance.now()-r.t0:0;
+  try{r.proc.onaudioprocess=null;r.src.disconnect();r.proc.disconnect();r.sink.disconnect()}catch(e){}
+  try{r.stream.getTracks().forEach(t=>t.stop())}catch(e){} // the phone's mic indicator goes off at once
+  if(send&&r.n>=400)sendPiece(r); // the last bit (under 50ms isn't worth a request)
+  const cancel=!send||dur<REC_MIN;
+  if(r.seq>0&&T)fetch('/talk?t='+encodeURIComponent(T)+'&id='+r.id+'&end='+r.seq+(cancel?'&cancel=1':''),{method:'POST'}).catch(()=>{});
+  if(G)markTalking(G.you,false);
+  if(rec===r)rec=null;
+}
+// the "talking" ring on a chip: set by each piece, cleared at the end or after 3s without one
+function markTalking(pid,on){
+  if(pid==null)return;
+  if(on)talkers.set(pid,Date.now());else talkers.delete(pid);
+  const chip=app.querySelector('.players .pl[data-pid="'+pid+'"]');if(chip)chip.classList.toggle('talking',on);
+}
+setInterval(()=>{const now=Date.now();for(const [pid,at] of talkers)if(now-at>3000&&!(rec&&rec.talk&&G&&pid===G.you))markTalking(pid,false)},1000);
+function onTalk(m){
+  if(!G||!m||m.pid==null)return;
+  if(m.end!=null){
+    const L=liveIn.get(m.id);
+    if(L){if(!m.drop&&L.played>=Math.max(1,Math.ceil(m.end*.6)))heardLive.add(m.id);liveIn.delete(m.id)}
+    markTalking(m.pid,false);return;
+  }
+  markTalking(m.pid,true);
+  if(m.pid===G.you)return;
+  let L=liveIn.get(m.id);if(!L){L={pid:m.pid,base:-1,maxS:-1,played:0,srcs:[]};liveIn.set(m.id,L)}
+  const ctx=audioCtx;
+  if(!ctx||ctx.state!=='running'||muted||document.visibilityState!=='visible'||G.lt!==1)return; // not heard live: the replay gets a badge
+  let u;try{const b=atob(m.a);u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i)}catch(e){return}
+  // 8kHz mu-law to the context's rate (linear interpolation); some browsers won't make an 8kHz buffer
+  const R=ctx.sampleRate,n=Math.max(1,Math.round(u.length*R/TALK_RATE)),buf=ctx.createBuffer(1,n,R),d=buf.getChannelData(0),k=(u.length-1)/Math.max(1,n-1);
+  for(let i=0;i<n;i++){const x=i*k,j=x|0,f=x-j,a=ULAW_DEC[u[j]],b=ULAW_DEC[u[Math.min(u.length-1,j+1)]];d[i]=a+(b-a)*f}
+  const now=ctx.currentTime;
+  if(L.base<0)L.base=now+TALK_JITTER-m.s*TALK_CH;
+  let at=L.base+m.s*TALK_CH;
+  if(at<now+.02){
+    if(m.s<L.maxS)return; // an old piece arriving after newer ones: skip it
+    const lag=now+.08-at;L.base+=lag;at+=lag; // the network fell behind: this talk now plays a little later
+  }
+  L.maxS=Math.max(L.maxS,m.s);
+  const sn=ctx.createBufferSource();sn.buffer=buf;sn.connect(ctx.destination);sn.start(at);
+  L.played++;L.srcs.push(sn);if(L.srcs.length>8)L.srcs.shift();
+}
+function hushLive(){for(const L of liveIn.values()){for(const sn of L.srcs)try{sn.stop()}catch(e){}L.srcs=[]}}
+
 // One voice at a time. Notes not heard yet wait on the sender's chip (unheard); one tap plays that sender's
 // notes back to back, oldest first. One audio element is reused, so on iPhones the next note in a queue may start
 // without another tap (a new element would need one).
@@ -3365,6 +3532,7 @@ function noteVoices(list){
   let any=false;
   for(const m of list){
     if(m.sys||m.kind!=='voice'||!m.vid||m.pid==null||m.pid===G.you)continue;
+    if(m.live&&heardLive.has(m.live))continue; // heard it live
     let a=unheard.get(m.pid);if(!a)unheard.set(m.pid,a=[]);
     if(!a.some(x=>x.vid===m.vid)){a.push({vid:m.vid,dur:m.dur,name:m.name,at:Date.now()});any=true}
   }
@@ -3445,7 +3613,7 @@ function passIfAway(){
   awayPassKey=k;if(!pred)sendMove('pass');
 }
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState!=='visible'){stopRec(false);return passIfAway()}
+  if(document.visibilityState!=='visible'){stopRec(false);hushLive();return passIfAway()}
   resumedAt=Date.now(); // messages that arrived while the screen was off go to chat, not to seat bubbles
   if(T&&!practiceMode&&(!es||es.readyState!==1))connect();
   keepAwake();settleView();
