@@ -550,8 +550,8 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
   padding:8px 10px;border-top:1px solid var(--line);
 }
 .chat form input{flex:1;min-width:0;height:40px;padding:0 14px;border-radius:999px}
-.chat form button{flex:none;width:40px;height:40px;padding:0;border-radius:50%}
-.chat form button svg{width:17px;height:17px;fill:currentColor;margin-left:2px}
+.chat form button{flex:none;width:40px;height:40px;padding:0;border-radius:50%;display:grid;place-items:center}
+.chat form button svg{width:17px;height:17px;fill:currentColor;margin-left:2px} /* the send arrow, nudged right so it looks centred */
 
 /* ---------- table extras: phrase button, tray, seat bubbles, voice notes, settings ---------- */
 .felt-fab{
@@ -649,7 +649,8 @@ input:focus{border-color:var(--gold-2);outline:none;box-shadow:0 0 0 3px rgba(va
 #recBar.away .hint{color:var(--danger-soft)}
 #recBar #recSend[disabled]{opacity:.5}
 #recBar .dot{width:10px;height:10px;border-radius:50%;background:var(--danger);animation:vnPulse 1s ease-in-out infinite}
-#recBar small{color:var(--muted);font-weight:500}
+#recBar .rec-t{white-space:nowrap} /* "0:03 / 0:08": one font, one line; the limit only dimmer */
+#recBar .rec-max{color:var(--muted)}
 #recBar button{width:38px;height:38px;border-radius:50%;padding:0;display:grid;place-items:center;cursor:pointer;border:1px solid var(--line-hi);background:var(--surface);color:var(--text)}
 #recBar button svg{width:17px;height:17px;fill:currentColor}
 #recBar #recSend{background:var(--gold-btn);color:var(--gold-ink);border:0}
@@ -733,6 +734,10 @@ html.nofx .fx,html.nofx #fxBg{display:none} /* off by the player, or for this se
 }
 .sc-hero-av{position:relative;flex:none}
 .sc-hero-av .lb-av{width:52px;height:52px;font-size:22px;box-shadow:0 0 0 2px rgba(var(--gold-rgb),.7),0 6px 16px rgba(0,0,0,.35)}
+.sc-hero-avs{display:flex}
+.sc-hero-avs .lb-av{width:44px;height:44px;font-size:19px;box-shadow:0 0 0 2px rgba(var(--gold-rgb),.7),0 6px 16px rgba(0,0,0,.35)}
+.sc-hero-avs .lb-av+.lb-av{margin-left:-14px}
+.sc-hero.joint .sc-hero-name{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;font-size:clamp(19px,5vw,24px)}
 .sc-hero-av svg{position:absolute;left:50%;top:-13px;width:26px;height:21px;transform:translateX(-50%) rotate(-8deg);filter:drop-shadow(0 2px 4px rgba(0,0,0,.4))}
 .sc-hero-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .sc-eyebrow{font:700 9.5px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--gold-dim)}
@@ -2114,10 +2119,10 @@ function cvHue(name){let h=7;for(const c of String(name).toLowerCase())h=(h*31+c
 // the 1080px image at ~1/3 scale. Height runs from square (few players) to ~3:4 (many).
 function generateScorecardCanvas(){
   // whole-game totals from the round history (the poster is offered on the final results only)
-  const byTotal=finalStandings().map(s=>({id:s.id,name:s.name,score:s.total,wins:s.wins}));
+  const byTotal=finalStandings().map(s=>({id:s.id,name:s.name,score:s.total,wins:s.wins,rank:s.rank,champ:s.champ}));
   const rounds=(G&&G.history||[]).length||1;
   if(!byTotal.length)byTotal.push({id:0,name:'Player',score:0,wins:0});
-  const winner=byTotal[0],loser=byTotal[byTotal.length-1];
+  const winner=byTotal[0],loser=byTotal[byTotal.length-1],champs=byTotal.filter(p=>p.champ),joint=champs.length>1;
   const shown=byTotal.length>8?[...byTotal.slice(0,7),loser]:byTotal.slice(),more=byTotal.length-shown.length,n=shown.length;
   const showTrail=byTotal.length>1&&(loser.score||0)>(winner.score||0);
   const rowH=n<=3?128:n<=5?112:104,big=rowH>=110;
@@ -2160,14 +2165,14 @@ function generateScorecardCanvas(){
   // 3. champion hero
   drawCrown(ctx,W/2,heroY+70,96);
   ctx.font=`700 22px ${CV_SANS}`;ctx.fillStyle='rgba(255,226,160,0.78)';
-  spacedText(ctx,'CHAMPION',W/2,heroY+168,9);
-  let fs=128;const champ=String(winner.name||'Winner');
+  spacedText(ctx,joint?'JOINT CHAMPIONS':'CHAMPION',W/2,heroY+168,9);
+  let fs=128;const champ=joint?jointNames(champs.map(p=>String(p.name))):String(winner.name||'Winner');
   do{ctx.font=`700 ${fs}px ${CV_SERIF}`;fs-=4}while(ctx.measureText(champ).width>W-2*PAD-40&&fs>64);
   ctx.textAlign='center';
   ctx.save();ctx.shadowColor='rgba(240,181,82,0.35)';ctx.shadowBlur=34;
   ctx.fillStyle=goldFill(ctx,heroY+200,heroY+300);ctx.fillText(champ,W/2,heroY+298);ctx.restore();
   // "<12> pts total · won 2 rounds" with the number in gold
-  const subA=String(winner.score||0),subB=` pts total  ·  ${winner.wins?`won ${winner.wins} round${winner.wins===1?'':'s'}`:`over ${rounds} round${rounds===1?'':'s'}`}`;
+  const subA=String(winner.score||0),subB=joint?` pts each  ·  tied over ${rounds} round${rounds===1?'':'s'}`:` pts total  ·  ${winner.wins?`won ${winner.wins} round${winner.wins===1?'':'s'}`:`over ${rounds} round${rounds===1?'':'s'}`}`;
   ctx.font=`700 32px ${CV_SANS}`;const aw=ctx.measureText(subA).width;
   ctx.font=`500 30px ${CV_SANS}`;const bw=ctx.measureText(subB).width;
   let sx=W/2-(aw+bw)/2;ctx.textAlign='left';
@@ -2189,8 +2194,8 @@ function generateScorecardCanvas(){
   roundRectPath(ctx,pX,pTop,pW,panelH,32);ctx.fill();ctx.stroke();
   const medal=['#ffe7a8','#d5dde0','#e3a77a'];
   shown.forEach((p,i)=>{
-    const gapAbove=more&&i===n-1?52:0,rank=byTotal.indexOf(p);
-    const y=pTop+14+i*rowH+gapAbove,mid=y+rowH/2,isWin=i===0,isLose=showTrail&&p.id===loser.id;
+    const gapAbove=more&&i===n-1?52:0,rank=(p.rank||byTotal.indexOf(p)+1)-1;
+    const y=pTop+14+i*rowH+gapAbove,mid=y+rowH/2,isWin=!!p.champ,isLose=showTrail&&p.score===loser.score; // tied for last: all of them
     if(gapAbove){
       ctx.textAlign='center';ctx.font=`500 24px ${CV_SANS}`;ctx.fillStyle='#8fa39a';
       ctx.fillText(`+${more} more player${more>1?'s':''}`,W/2,y-18);
@@ -2403,6 +2408,7 @@ function paintChat(){
     document.body.classList.remove('chat-open','round-over');
     showOver('');return;
   }
+  if(el.hidden===chatOpen){queueMicrotask(placeFab);setTimeout(placeFab,350)} // opened or closed: the table buttons follow (after any slide-in)
   el.hidden=!chatOpen;
   document.body.classList.toggle('chat-open',chatOpen);
   bdBackdrop.classList.toggle('open',chatOpen&&innerWidth<960);
@@ -2727,16 +2733,20 @@ const scAvatar=name=>`<span class="lb-av" aria-hidden="true">${esc((String(name)
 const scWait=(hostP,what)=>`<div class="sc-wait" role="status">Waiting for<b>${esc(hostP?hostP.name:'the host')}</b>${what}<span class="lb-dots"><i></i><i></i><i></i></span></div>`;
 const scNum=(v,fresh)=>`<span data-count="${v||0}">${fresh?0:(v||0)}</span>`;
 // The winner summary at the top of both cards: avatar with a crown, name, one line, one number.
-function scHero(name,eyebrow,sub,num,numLabel){
-  return `<div class="sc-hero" style="--h:${nameHue(name)}">
-    <span class="sc-hero-av">${scAvatar(name)}<svg viewBox="0 0 64 52" aria-hidden="true"><use href="#crownSvg"/></svg></span>
+function scHero(name,eyebrow,sub,num,numLabel,names){
+  // names: several joint winners, shown as overlapping avatars under one crown
+  const av=names&&names.length>1?`<span class="sc-hero-avs">${names.slice(0,3).map(n=>`<span class="lb-av" style="--h:${nameHue(n)}">${esc((String(n).trim()[0]||'?').toUpperCase())}</span>`).join('')}</span>`:scAvatar(name);
+  return `<div class="sc-hero${names&&names.length>1?' joint':''}" style="--h:${nameHue(name)}">
+    <span class="sc-hero-av">${av}<svg viewBox="0 0 64 52" aria-hidden="true"><use href="#crownSvg"/></svg></span>
     <span class="sc-hero-txt"><span class="sc-eyebrow">${eyebrow}</span><h2 id="scTitle" class="sc-hero-name">${esc(name)}</h2><span class="sc-hero-sub">${sub}</span></span>
     <span class="sc-hero-num"><b>${num}</b><small>${numLabel}</small></span>
   </div>`;
 }
+// "Ann & Bo", "Ann, Bo & Cy", "Ann, Bo, Cy +2"
+function jointNames(ns){return ns.length<=3?ns.slice(0,-1).join(', ')+' & '+ns[ns.length-1]:ns.slice(0,3).join(', ')+' +'+(ns.length-3)}
 // One row: rank, avatar, name (+ tags) over a single meta line, and a right-aligned number.
 function resRowInner(idx,p,tags,meta,num,small){
-  return `<span class="res-rank">${idx+1}</span>${scAvatar(p.name)}
+  return `<span class="res-rank">${p.rank||idx+1}</span>${scAvatar(p.name)}
     <span class="res-who"><span class="res-name"><span>${esc(p.name)}</span>${tags}</span>${meta}</span>
     <span class="res-num"><b>${num}</b><small>${small}</small></span>`;
 }
@@ -2793,8 +2803,11 @@ function finalStandings(){
   }));
   ((G&&G.joins)||[]).forEach(j=>{const s=by.get(j.id);if(s){s.total+=j.pts;s.join=j}});
   const here=new Set((G?G.players:[]).map(p=>p.id));
-  return [...by.values()].map(s=>({...s,left:!here.has(s.id)}))
+  const st=[...by.values()].map(s=>({...s,left:!here.has(s.id)}))
     .sort((a,b)=>a.total-b.total||b.wins-a.wins||a.name.localeCompare(b.name));
+  // the same total is the same place (1, 1, 3): round wins only order the list, they never break a tie
+  st.forEach((s,i)=>{s.rank=i&&s.total===st[i-1].total?st[i-1].rank:i+1;s.champ=s.rank===1});
+  return st;
 }
 
 // Which final-results rows are open. Kept across re-renders (a chat message redraws the card), per game.
@@ -2812,7 +2825,7 @@ function buildFinalModal(fresh){
   if(!st.length)return '';
   const key=G.room+':'+rounds+':'+(hist[0]?hist[0].round:0);
   if(resOpen.key!==key)resOpen={key,ids:new Set()};
-  const champ=st[0],host=G.host===G.you,hostP=G.players.find(p=>p.id===G.host);
+  const champ=st[0],champs=st.filter(p=>p.champ),host=G.host===G.you,hostP=G.players.find(p=>p.id===G.host);
   const rs=n=>`${n} round${n===1?'':'s'}`;
   const rows=st.map((p,idx)=>{
     const open=resOpen.ids.has(p.id),tags=(p.id===G.you?'<small>You</small>':'')+(p.left?'<i class="sc-tag">Left</i>':'');
@@ -2822,7 +2835,7 @@ function buildFinalModal(fresh){
       ?`<span class="res-chip na"><i>R${hist[i].round}</i>–</span>`
       :p.away[i]?`<span class="res-chip away" title="Away for round ${hist[i].round}: charged that round's highest score"><i>R${hist[i].round} away</i>${v}</span>`
       :`<span class="res-chip${hist[i].rows.some(r=>r.id===p.id&&r.place===1)?' won':''}"><i>R${hist[i].round}</i>${v}</span>`).join('');
-    return `<li class="res-item${idx===0?' win':''}" style="--h:${nameHue(p.name)};--i:${idx}">
+    return `<li class="res-item${p.champ?' win':''}" style="--h:${nameHue(p.name)};--i:${idx}">
       <button class="res-row" type="button" data-pid="${p.id}" aria-expanded="${open}" aria-controls="resR${p.id}" title="Show ${esc(p.name)}'s rounds">${
         resRowInner(idx,p,tags,meta,scNum(p.total,fresh),'pts')}${SC_ICO.chev}</button>
       <div class="res-rounds" id="resR${p.id}" ${open?'':'hidden'}>${chips}</div>
@@ -2830,7 +2843,9 @@ function buildFinalModal(fresh){
   }).join('');
   return `<section class="sc final${fresh?' sc-in':''}" role="dialog" aria-modal="true" aria-labelledby="scTitle">
     <span class="sc-round">Game over · ${rs(rounds)}</span>
-    ${scHero(champ.name,'Champion',`Won ${champ.wins} of ${rs(rounds)}`,scNum(champ.total,fresh),'pts total')}
+    ${champs.length>1
+      ?scHero(jointNames(champs.map(p=>p.name)),'Joint champions',`Tied over ${rs(rounds)}`,scNum(champ.total,fresh),'pts each',champs.map(p=>p.name))
+      :scHero(champ.name,'Champion',`Won ${champ.wins} of ${rs(rounds)}`,scNum(champ.total,fresh),'pts total')}
     <div class="sc-head"><span>Final standings · tap for rounds</span><span>Total</span></div>
     <ol class="sc-list">${rows}</ol>
     <div class="sc-actions">
@@ -3004,7 +3019,10 @@ function placeFab(){
     document.body.appendChild(f);
   }
   f.hidden=false;
-  const B=bd.getBoundingClientRect(),S=34,left=Math.round(Math.max(4+44,Math.min(innerWidth-S-4,B.right-22))),top=Math.round(B.bottom-16);
+  // the chat docked beside the table (wide screens): the buttons stay clear of its edge
+  const ch=document.getElementById('chat'),cr=ch&&!ch.hidden?ch.getBoundingClientRect():null;
+  const B=bd.getBoundingClientRect(),S=34,edge=cr&&cr.width&&cr.left>B.left&&cr.left<innerWidth?cr.left-6:innerWidth-4;
+  const left=Math.round(Math.max(4+44,Math.min(edge-S,B.right-22))),top=Math.round(B.bottom-16);
   f.style.left=left+'px';f.style.top=top+'px';
   // hold-to-talk, just left of it (not in practice, nor where the browser can't record)
   let m=document.getElementById('micFab');
@@ -3249,12 +3267,12 @@ function paintRecBar(ms){
   if(b&&b.classList.contains('hold')!==held){b.remove();b=null}
   if(!b&&held){
     b=document.createElement('div');b.id='recBar';b.className='hold';b.setAttribute('role','status');
-    b.innerHTML=`<span class="dot"></span><span id="recTime">0:00</span><small>/ 0:08</small><span class="hint" id="recHint">Wait for the red dot\u2026</span>`;
+    b.innerHTML=`<span class="dot"></span><span class="rec-t"><span id="recTime">0:00</span><span class="rec-max"> / 0:08</span></span><span class="hint" id="recHint">Wait for the red dot\u2026</span>`;
     document.body.appendChild(b);
   }
   if(!b){
     b=document.createElement('div');b.id='recBar';b.setAttribute('role','status');
-    b.innerHTML=`<span class="dot"></span><span id="recTime">0:00</span><small>/ 0:08</small><button id="recCancel" type="button" aria-label="Cancel voice note"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button><button id="recSend" type="button" aria-label="Send voice note"><svg viewBox="0 0 24 24"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>`;
+    b.innerHTML=`<span class="dot"></span><span class="rec-t"><span id="recTime">0:00</span><span class="rec-max"> / 0:08</span></span><button id="recCancel" type="button" aria-label="Cancel voice note"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button><button id="recSend" type="button" aria-label="Send voice note"><svg viewBox="0 0 24 24"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>`;
     document.body.appendChild(b);
   }
   const t=document.getElementById('recTime');if(t)t.textContent=ms<0?'Starting…':'0:0'+Math.min(8,Math.floor(ms/1000));
